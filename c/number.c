@@ -558,22 +558,22 @@ static ptr big_add_pos(ptr tc, ptr x, ptr y, iptr xl, iptr yl, IBOOL sign) {
 
 /* assumptions: x >= y */
 static ptr big_add_neg(ptr tc, ptr x, ptr y, iptr xl, iptr yl, IBOOL sign) {
-  iptr i;
+  iptr t;
   bigit *xp, *yp, *zp;
   bigit b = 0;
 
   PREPARE_BIGNUM(tc, W(tc),xl)
 
-  xp = &BIGIT(x,xl-1); yp = &BIGIT(y,yl-1); zp = &BIGIT(W(tc),xl-1);
+  xp = &BIGIT(x,0); yp = &BIGIT(y,0); zp = &BIGIT(W(tc),0);
 
-  for (i = yl; i-- > 0; )
-    ESUBC(*xp--, *yp--, zp--, &b)
-  for (i = xl-yl; b != 0 && i-- > 0; )
-    ESUBC(*xp--, 0, zp--, &b)
-  for (; i-- > 0; )
-    *zp-- = *xp--;
+  for (t = 0; t < yl; t += 1)
+    ESUBC(xp[xl-1-t], yp[yl-1-t], &zp[xl-1-t], &b)
+  for (; b != 0 && t < xl; t += 1)
+    ESUBC(xp[xl-1-t], 0, &zp[xl-1-t], &b)
+  for (; t < xl; t += 1)
+    zp[xl-1-t] = xp[xl-1-t];
 
-  return copy_normalize(tc, zp+1,xl,sign);
+  return copy_normalize(tc, zp,xl,sign);
 }
 
 static ptr big_add(ptr tc, ptr x, ptr y, iptr xl, iptr yl, IBOOL xs, IBOOL ys) {
