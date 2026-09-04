@@ -1429,16 +1429,33 @@ ptr S_ash(ptr x, ptr n) {
 }
 
 /* x is a bignum */
+/* the number of bits in a nonzero bigit, by binary search */
+static INT bigit_bit_length(bigit b) {
+  INT n = 1;
+  if (b >> 16) { n += 16; b >>= 16; }
+  if (b >> 8) { n += 8; b >>= 8; }
+  if (b >> 4) { n += 4; b >>= 4; }
+  if (b >> 2) { n += 2; b >>= 2; }
+  if (b >> 1) { n += 1; }
+  return n;
+}
+
 ptr S_integer_length(ptr x) {
-  iptr a; bigit b;
+  iptr xl = BIGLEN(x), i;
+  bigit b = BIGIT(x, 0);
+  iptr n = (xl - 1) * bigit_bits + bigit_bit_length(b);
 
-  if (BIGSIGN(x)) x = S_sub(FIX(-1), x);
-
-  b = BIGIT(x, 0);
-  a = 1;
-  while (b >>= 1) a += 1;
-
-  return S_add(S_mul(FIX(BIGLEN(x) - 1), FIX(bigit_bits)), FIX(a));
+  if (BIGSIGN(x)) {
+   /* integer-length of -m is that of m - 1, which is one less than
+      that of m exactly when m is a power of two: the leading bigit a
+      power of two and every lower bigit zero */
+    if ((b & (b - 1)) == 0) {
+      for (i = 1; i < xl; i += 1)
+        if (BIGIT(x, i) != 0) return FIX(n);
+      n -= 1;
+    }
+  }
+  return FIX(n);
 }
 
 /* x is a bignum */
@@ -1452,8 +1469,12 @@ ptr S_big_first_bit_set(ptr x) {
  /* first bit set in signed magnitude is same as for two's complement,
     since if x ends with k zeros, ~x+1 also ends with k zeros. */
   while ((b = *--xp) == 0) zbigits += 1;
-  while ((b & 1) == 0) { zbits += 1; b >>= 1; }
-  return S_add(S_mul(FIX(zbigits), FIX(bigit_bits)), FIX(zbits));
+  if ((b & 0xFFFF) == 0) { zbits += 16; b >>= 16; }
+  if ((b & 0xFF) == 0) { zbits += 8; b >>= 8; }
+  if ((b & 0xF) == 0) { zbits += 4; b >>= 4; }
+  if ((b & 0x3) == 0) { zbits += 2; b >>= 2; }
+  if ((b & 0x1) == 0) { zbits += 1; }
+  return FIX(zbigits * bigit_bits + zbits);
 }
 
 /* assumes fxstart - fxend > 0 */
@@ -1646,22 +1667,36 @@ static ptr big_logand(ptr tc, ptr x, ptr y, iptr xl, iptr yl, IBOOL xs, IBOOL ys
 
 /* logtest is like logand but returns a boolean value */
 
-ptr S_logtest(ptr x, ptr y) {
-  ptr tc = get_thread_context();
+/* logtest of a fixnum against a bignum, without staging the fixnum as
+   a bignum.  A negative fixnum has ones in every bit position from the
+   fixnum sign bit up, and a bignum of either sign has a bit set there
+   (its magnitude is at least 2^(fixnum_bits-1)), so the test is true.
+   A nonnegative fixnum only meets the low bits of the bignum's two's
+   complement form, which its lowest two bigits determine. */
+static ptr fixnum_big_logtest(ptr f, ptr b) {
+  iptr n = UNFIX(f);
+  iptr bl;
+  U64 low;
 
+  if (n < 0) return Strue;
+  if (n == 0) return Sfalse;
+  bl = BIGLEN(b);
+  low = BIGIT(b, bl - 1);
+  if (bl > 1) low |= (U64)BIGIT(b, bl - 2) << bigit_bits;
+  if (BIGSIGN(b)) low = (U64)0 - low;
+  return Sboolean((U64)n & low);
+}
+
+ptr S_logtest(ptr x, ptr y) {
   if (Sfixnump(x)) {
     if (Sfixnump(y)) {
       return Sboolean((iptr)x & (iptr)y);
     } else {
-      iptr xl; IBOOL xs;
-      FIXNUM_TO_BIGNUM(tc,X(tc),x,&xl,&xs)
-      return big_logtest(y, X(tc), BIGLEN(y), xl, BIGSIGN(y), xs);
+      return fixnum_big_logtest(x, y);
     }
   } else {
     if (Sfixnump(y)) {
-      iptr yl; IBOOL ys;
-      FIXNUM_TO_BIGNUM(tc,Y(tc),y,&yl,&ys)
-      return big_logtest(x, Y(tc), BIGLEN(x), yl, BIGSIGN(x), ys);
+      return fixnum_big_logtest(y, x);
     } else {
       if (BIGLEN(x) >= BIGLEN(y))
         return big_logtest(x, y, BIGLEN(x), BIGLEN(y), BIGSIGN(x), BIGSIGN(y));
@@ -2160,7 +2195,38 @@ ptr S_lognot(ptr x) {
   if (Sfixnump(x)) {
     return FIX(~UNFIX(x));
   } else {
-    return S_sub(FIX(-1), x);
+   /* ~x = -x - 1: for positive x the magnitude grows by one and the
+      sign flips, for negative x the magnitude shrinks by one and the
+      sign flips.  Neither needs the general subtraction. */
+    ptr tc = get_thread_context();
+    iptr xl = BIGLEN(x), i;
+    IBOOL xs = BIGSIGN(x);
+    bigit *xp, *wp;
+
+    PREPARE_BIGNUM(tc, W(tc), xl + 1)
+    xp = &BIGIT(x, xl);
+    if (xs) {
+     /* |x| - 1: the borrow ripples through trailing zero bigits */
+      bigit b = 1;
+      wp = &BIGIT(W(tc), xl);
+      for (i = xl; i > 0; i -= 1) {
+        bigit t = *--xp;
+        *--wp = t - b;
+        b = (t < b);
+      }
+      return copy_normalize(tc, &BIGIT(W(tc), 0), xl, 0);
+    } else {
+     /* |x| + 1: the carry ripples through trailing all-ones bigits */
+      bigit c = 1;
+      wp = &BIGIT(W(tc), xl + 1);
+      for (i = xl; i > 0; i -= 1) {
+        bigit t = *--xp + c;
+        *--wp = t;
+        c = (t < c);
+      }
+      *--wp = c;
+      return copy_normalize(tc, &BIGIT(W(tc), 0), xl + 1, 1);
+    }
   }
 }
 
