@@ -1282,6 +1282,23 @@
                                                (set-pseudo-random-generator-x11! s v)
                                                (set-pseudo-random-generator-x12! s v)
                                                (pseudo-random-generator-x20 s)))))))
+  ;; same, but with fields declared using the `double-float` spelling
+  (or (not (enable-cp0))
+      (let ()
+        (define-record pseudo-random-generator
+          ((mutable double-float x10) (mutable double-float x11) (mutable double-float x12)
+           (mutable double-float x20) (mutable double-float x21) (mutable double-float x22))
+          ())
+        (let ([s (make-pseudo-random-generator 1.0 2.0 3.0 4.0 5.0 6.0)])
+          (check-loop-allocation (lambda (v) (let ([v (fl+ (pseudo-random-generator-x10 s) 1.0)])
+                                               (set-pseudo-random-generator-x11! s v)
+                                               (set-pseudo-random-generator-x12! s v)
+                                               (pseudo-random-generator-x20 s))))
+          (check-loop-allocation (lambda (v) (begin
+                                               (set-pseudo-random-generator-x21! s
+                                                 (fl+ (pseudo-random-generator-x21 s)
+                                                      (pseudo-random-generator-x22 s)))
+                                               (fl+ v 1.0)))))))
 
   (let ()
     (define-ftype V2d
