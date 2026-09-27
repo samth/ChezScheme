@@ -3223,13 +3223,43 @@
 
 
     (define-pass np-finalize-loops : L9.5 (ir) -> L9.75 ()
+      (definitions
+        ;; EXPERIMENT: an immediate too wide for an instruction's immediate
+        ;; field must be loaded into a register at each use, so bind each such
+        ;; immediate once, ahead of the outermost loop that uses it. Only
+        ;; fixnum-tagged words qualify, since the binding is a `ptr` variable
+        ;; that can be live across the loop's event check.
+        (define hoisted #f) ; #f outside a loop, else a box of (imm . tmp)
+        (define enabled? (not (getenv "CHEZ_NO_HOIST_IMM")))
+        (define hoist-immediate?
+          (lambda (imm)
+            (and enabled?
+                 (not (signed-32? imm))
+                 (eqv? (logand imm (constant mask-fixnum)) (constant type-fixnum))))))
       (Expr : Expr (ir) -> Expr ()
         [(loop ,x (,x* ...) ,body)
-         (let ([Ltop (make-local-label (uvar-name x))])
+         (let ([Ltop (make-local-label (uvar-name x))]
+               [outer? (not hoisted)])
            (uvar-location-set! x (cons Ltop x*))
+           (when outer? (set! hoisted (box '())))
            (let ([body (Expr body)])
              (uvar-location-set! x #f)
-             `(label ,Ltop ,body)))]
+             (if outer?
+                 (let ([imm.t* (unbox hoisted)])
+                   (set! hoisted #f)
+                   (if (null? imm.t*)
+                       `(label ,Ltop ,body)
+                       `(let ([,(map cdr imm.t*) (immediate ,(map car imm.t*))] ...)
+                          (label ,Ltop ,body))))
+                 `(label ,Ltop ,body))))]
+        [(immediate ,imm)
+         (guard hoisted (hoist-immediate? imm))
+         (cond
+           [(assv imm (unbox hoisted)) => cdr]
+           [else
+            (let ([t (make-tmp 'k)])
+              (set-box! hoisted (cons (cons imm t) (unbox hoisted)))
+              t)])]
         [(call ,info ,mdcl ,x ,[e*] ...)
          (guard (uvar-location x))
          (let ([Ltop.x* (uvar-location x)])
