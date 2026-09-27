@@ -29,7 +29,7 @@
             (and (eq? '$object-ref (primref-name pr))
                  (pair? e*)
                  (nanopass-case (L7 Expr) (car e*)
-                   [(quote ,d) (eq? d 'double)])))]
+                   [(quote ,d) (eq? (filter-foreign-type d) 'double-float)])))]
        [(foreign-call ,info ,e ,e* ...) (fp-type? (info-foreign-result-type info))]
        [(seq ,e0 ,e1) (flonum-result? e1 (fx- fuel 1))]
        [(let ([,x* ,e*] ...) ,body) (flonum-result? body (fx- fuel 1))]

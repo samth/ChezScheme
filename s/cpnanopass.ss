@@ -2779,7 +2779,7 @@
                 (and (eq? '$object-ref (primref-name pr))
                      (pair? e*)
                      (nanopass-case (L7 Expr) (car e*)
-                       [(quote ,d) (eq? d 'double)])))]
+                       [(quote ,d) (eq? (filter-foreign-type d) 'double-float)])))]
            [(seq ,e0 ,e1) (flonum-result? e1 (fx- fuel 1))]
            [(let ([,x* ,e*] ...) ,body) (flonum-result? body (fx- fuel 1))]
            [(if ,e1 ,e2 ,e3) (and (flonum-result? e2 (fxsrl fuel 1))
@@ -2865,14 +2865,14 @@
         [(call ,info ,mdcl ,pr ,e1 ,[e2 #f -> * fp?2] ,[e3 #f -> * fp?3] ,e4)
          (guard (and (eq? '$object-set! (primref-name pr))
                      (nanopass-case (L7 Expr) e1
-                       [(quote ,d) (eq? d 'double)]
+                       [(quote ,d) (eq? (filter-foreign-type d) 'double-float)]
                        [else #f])))
          (Expr e4 #t)
          #f]
         [(call ,info ,mdcl ,pr ,e1 ,[e2 #f -> * fp?2] ,[e3 #f -> * fp?3])
          (guard (and (eq? '$object-ref (primref-name pr))
                      (nanopass-case (L7 Expr) e1
-                       [(quote ,d) (eq? d 'double)]
+                       [(quote ,d) (eq? (filter-foreign-type d) 'double-float)]
                        [else #f])))
          #t]
         [(call ,info ,mdcl ,pr ,[e1 #f -> * fp?1] ,[e2 #f -> * fp?2] ,e3)
