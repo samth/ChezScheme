@@ -3224,18 +3224,31 @@
 
     (define-pass np-finalize-loops : L9.5 (ir) -> L9.75 ()
       (definitions
-        ;; EXPERIMENT: an immediate too wide for an instruction's immediate
-        ;; field must be loaded into a register at each use, so bind each such
-        ;; immediate once, ahead of the outermost loop that uses it. Only
-        ;; fixnum-tagged words qualify, since the binding is a `ptr` variable
-        ;; that can be live across the loop's event check.
+        ;; EXPERIMENT: an immediate that no instruction can encode must be
+        ;; built in a register at each use -- one `movabs` on x86_64, up to a
+        ;; `movz` and three `movk`s on arm64 -- so bind each such immediate
+        ;; once, ahead of the outermost loop that uses it. The binding has
+        ;; type `uptr`, so the GC ignores it when it is live across the loop's
+        ;; event check, whatever bits it holds.
         (define hoisted #f) ; #f outside a loop, else a box of (imm . tmp)
         (define enabled? (not (getenv "CHEZ_NO_HOIST_IMM")))
+        (define expensive-immediate?
+          (constant-case architecture
+            [(x86_64)
+             (lambda (imm) (not (signed-32? imm)))]
+            [(arm64)
+             (let ()
+               (import (only asm-module funkymask shifted16 unsigned12?))
+               ;; cheap: one `movz`, a logical immediate, or an add/sub immediate
+               (lambda (imm)
+                 (not (or (shifted16 imm)
+                          (funkymask imm)
+                          (unsigned12? imm)
+                          (unsigned12? (- imm))))))]
+            [else (lambda (imm) #f)]))
         (define hoist-immediate?
           (lambda (imm)
-            (and enabled?
-                 (not (signed-32? imm))
-                 (eqv? (logand imm (constant mask-fixnum)) (constant type-fixnum))))))
+            (and enabled? (expensive-immediate? imm)))))
       (Expr : Expr (ir) -> Expr ()
         [(loop ,x (,x* ...) ,body)
          (let ([Ltop (make-local-label (uvar-name x))]
@@ -3257,7 +3270,7 @@
          (cond
            [(assv imm (unbox hoisted)) => cdr]
            [else
-            (let ([t (make-tmp 'k)])
+            (let ([t (make-tmp 'k 'uptr)])
               (set-box! hoisted (cons (cons imm t) (unbox hoisted)))
               t)])]
         [(call ,info ,mdcl ,x ,[e*] ...)
