@@ -101,7 +101,7 @@ typedef uint64_t U64;
 #define bytevector_length_factor 0x8
 #define bytevector_length_offset 0x3
 #define bytevector_type_disp 0x1
-#define c_entry_name_vector #(thread-context get-thread-context handle-apply-overflood handle-docall-error handle-overflow handle-overflood handle-nonprocedure-symbol thread-list split-and-resize raw-collect-cond raw-collect-thread0-cond raw-tc-mutex raw-terminated-cond activate-thread deactivate-thread unactivate-thread save-errno save-last-error handle-values-error handle-mvlet-error handle-arg-error handle-event-detour foreign-entry install-library-entry get-more-room scan-remembered-set instantiate-code-object Sreturn Scall-one-result Scall-any-results segment-info bignum-mask-test flfloor flceiling flround fltruncate flsin flcos fltan flasin flacos flatan flatan2 flexp fllog fllog2 flexpt flsqrt null-immutable-vector null-immutable-bytevector null-immutable-string flhypot)
+#define c_entry_name_vector #(thread-context get-thread-context handle-apply-overflood handle-docall-error handle-overflow handle-overflood handle-nonprocedure-symbol thread-list split-and-resize raw-collect-cond raw-collect-thread0-cond raw-tc-mutex raw-terminated-cond activate-thread deactivate-thread unactivate-thread save-errno save-last-error handle-values-error handle-mvlet-error handle-arg-error handle-event-detour foreign-entry install-library-entry get-more-room scan-remembered-set instantiate-code-object Sreturn Scall-one-result Scall-any-results segment-info bignum-mask-test flfloor flceiling flround fltruncate flsin flcos fltan flasin flacos flatan flatan2 flexp fllog fllog2 flexpt flhypot flsqrt null-immutable-vector null-immutable-bytevector null-immutable-string)
 #define c_entry_vector_size 0x34
 #define cached_stack_link_disp 0x8
 #define cached_stack_size_disp 0x0
@@ -1341,12 +1341,12 @@ typedef uint64_t U64;
 #define CENTRY_flexp 43
 #define CENTRY_flexpt 46
 #define CENTRY_flfloor 32
-#define CENTRY_flhypot 51
+#define CENTRY_flhypot 47
 #define CENTRY_fllog 44
 #define CENTRY_fllog2 45
 #define CENTRY_flround 34
 #define CENTRY_flsin 36
-#define CENTRY_flsqrt 47
+#define CENTRY_flsqrt 48
 #define CENTRY_fltan 38
 #define CENTRY_fltruncate 35
 #define CENTRY_foreign_entry 22
@@ -1363,9 +1363,9 @@ typedef uint64_t U64;
 #define CENTRY_handle_values_error 18
 #define CENTRY_install_library_entry 23
 #define CENTRY_instantiate_code_object 26
-#define CENTRY_null_immutable_bytevector 49
-#define CENTRY_null_immutable_string 50
-#define CENTRY_null_immutable_vector 48
+#define CENTRY_null_immutable_bytevector 50
+#define CENTRY_null_immutable_string 51
+#define CENTRY_null_immutable_vector 49
 #define CENTRY_raw_collect_cond 9
 #define CENTRY_raw_collect_thread0_cond 10
 #define CENTRY_raw_tc_mutex 11
@@ -1662,5 +1662,5 @@ typedef uint64_t U64;
 /* library entries we access from C code */
 #define library_nonprocedure_code 162
 #define library_dounderflow 164
-#define library_popcount_slow 630
-#define library_cpu_features 632
+#define library_popcount_slow 632
+#define library_cpu_features 634
