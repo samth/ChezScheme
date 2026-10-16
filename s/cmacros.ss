@@ -3464,7 +3464,8 @@
     [uptr uptr uptr uptr uptr uptr uptr uptr]
     [uptr double double double double double double]
     [void*]
-    [void* uptr])
+    [void* uptr]
+    [double double double double])
 
   ;; end pb
   ]
