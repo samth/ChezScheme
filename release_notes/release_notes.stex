@@ -117,6 +117,13 @@ Online versions of both books can be found at
 %-----------------------------------------------------------------------------
 \section{Functionality Changes}\label{section:functionality}
 
+\subsection{Fused multiply-add}
+
+The new \scheme{flfma} procedure multiplies two flonums and adds a third
+with a single rounding. It uses native fused multiply-add instructions
+on AArch64 and on x86\_64 with FMA3 and operating-system AVX support,
+and the C library's fused operation elsewhere.
+
 \subsection{Unicode 17.0.0 support (10.4.0)}
 
 The character sets, character classes, and word-breaking algorithms for character, string,
