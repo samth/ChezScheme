@@ -22,6 +22,9 @@
 #include <limits.h>
 #include <ctype.h>
 #include <math.h>
+#if defined(_MSC_VER) && defined(_M_X64)
+# include <intrin.h>
+#endif
 
 #if defined(__GNU__) /* Hurd */
 #include <sys/resource.h>
@@ -1520,6 +1523,22 @@ static double s_hypot(double x, double y) { return HYPOT(x, y); }
 
 static double s_nextafter(double x, double y) { return nextafter(x, y); }
 
+static uptr fma_supported;
+
+static void init_fma_supported(void) {
+    fma_supported = 0;
+#if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
+    __builtin_cpu_init();
+    fma_supported = !!(__builtin_cpu_supports("fma") && __builtin_cpu_supports("avx"));
+#elif defined(_MSC_VER) && defined(_M_X64)
+    int regs[4];
+    __cpuid(regs, 1);
+    if ((regs[2] & ((1 << 12) | (1 << 27) | (1 << 28)))
+        == ((1 << 12) | (1 << 27) | (1 << 28)))
+        fma_supported = ((_xgetbv(0) & 6) == 6);
+#endif
+}
+
 static double s_asinh(double x) { return CHECK_ASINTAN_ZERO(x, asinh(x)); }
 
 static double s_acosh(double x) { return acosh(x); }
@@ -2000,6 +2019,11 @@ void S_prim5_init(void) {
     S_install_c_entry(CENTRY_flacosh, proc2ptr(s_acosh));
     S_install_c_entry(CENTRY_flatanh, proc2ptr(s_atanh));
     S_install_c_entry(CENTRY_flfma, proc2ptr(s_fma));
+    init_fma_supported();
+    /* Bootstrap kernels can still use an older portable boot header. */
+#ifdef CENTRY_fma_supported
+    S_install_c_entry(CENTRY_fma_supported, (ptr)&fma_supported);
+#endif
     S_install_c_entry(CENTRY_flhypot, proc2ptr(s_hypot));
     S_install_c_entry(CENTRY_flnextafter, proc2ptr(s_nextafter));
     S_install_c_entry(CENTRY_flsqrt, proc2ptr(s_sqrt));

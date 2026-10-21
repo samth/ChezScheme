@@ -4973,6 +4973,22 @@
                                  ,(build-fl-call (lookup-c-entry fltanh) e)))]
                        [else (build-fl-call (lookup-c-entry fltanh) e)])))]
             [else (build-fl-call (lookup-c-entry fltanh) e)])))
+      (define build-flfma
+        (lambda (e1 e2 e3)
+          (constant-case architecture
+            [(arm64 riscv64 loongarch64 ppc32)
+             (bind #f fp (e1 e2 e3)
+               `(unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3)))]
+            [(x86_64)
+             ;; Test at run time: compiled code can be moved between CPUs,
+             ;; and AVX needs operating-system support as well as hardware.
+             (bind 'always fp (e1 e2 e3)
+               `(if ,(%inline eq?
+                       ,(%mref (literal ,(make-info-literal #f 'entry (lookup-c-entry fma-supported) 0)) 0)
+                       (immediate 0))
+                    ,(build-fl-call (lookup-c-entry flfma) e1 e2 e3)
+                    (unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3))))]
+            [else (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])))
       (define build-flminmax
         (lambda (min?)
           (lambda (e1 e2)
@@ -5066,7 +5082,7 @@
         [(e) (build-fltanh e)])
 
       (define-inline 3 flfma
-        [(e1 e2 e3) (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])
+        [(e1 e2 e3) (build-flfma e1 e2 e3)])
 
       (define-inline 3 flhypot
         [(e1 e2) (build-fl-call (lookup-c-entry flhypot) e1 e2)])
@@ -5464,10 +5480,10 @@
       (define-inline 2 flfma
         [(e1 e2 e3)
          (if (and (known-flonum-result? e1) (known-flonum-result? e2) (known-flonum-result? e3))
-             (build-fl-call (lookup-c-entry flfma) e1 e2 e3)
+             (build-flfma e1 e2 e3)
              (bind #t (e1 e2 e3)
                `(if ,(build-flonums? (list e1 e2 e3))
-                    ,(build-fl-call (lookup-c-entry flfma) e1 e2 e3)
+                    ,(build-flfma e1 e2 e3)
                     ,(build-libcall #t src sexpr flfma e1 e2 e3))))])
 
       (define-inline 2 flhypot
