@@ -532,6 +532,39 @@
     (== (flnextafter 1.0 +nan.0) +nan.0)
     (eqv? (apply flnextafter '(1.0 2.0)) 1.0000000000000002)
     (test-cp0-expansion eqv? '(flnextafter 1.0 2.0) 1.0000000000000002)
+    ;; Compare inlined and first-class calls with nonconstant arguments
+    ;; against the C library
+    (let ([c-nextafter (foreign-procedure "(cs)nextafter" (double double) double)]
+          [fs (list (lambda (x y) (flnextafter x y))
+                    (lambda (x y) (#2%flnextafter x y))
+                    (lambda (x y) (fl+ (flnextafter x y) 0.0))
+                    (lambda (x y) (flnextafter x x))
+                    flnextafter)]
+          [xs '(-inf.0 -1.7976931348623157e308 -1.0000000000000002 -1.0 -0.9999999999999999
+                -2.2250738585072014e-308 -2.225073858507201e-308 -1e-323 -5e-324 -0.0
+                0.0 5e-324 1e-323 2.225073858507201e-308 2.2250738585072014e-308
+                0.9999999999999999 1.0 1.0000000000000002 1.7976931348623157e308 +inf.0
+                +nan.0)])
+      (define (same? a b) (or (eqv? a b) (and (nan? a) (nan? b))))
+      (andmap
+        (lambda (x)
+          (andmap
+            (lambda (y)
+              (andmap
+                (lambda (f expected) (same? (f x y) expected))
+                fs
+                (let ([r (c-nextafter x y)])
+                  (list r r (fl+ r 0.0) x r))))
+            xs))
+        xs))
+    (let loop ([x 1.0] [n 0])
+      (if (fl< x 1.000000000000001)
+          (loop (flnextafter x 2.0) (fx+ n 1))
+          (eqv? n 5)))
+    (let loop ([x -5e-324] [n 0])
+      (if (fl< x 1e-323)
+          (loop (flnextafter x +inf.0) (fx+ n 1))
+          (eqv? n 3)))
 )
 
 (mat flhypot
