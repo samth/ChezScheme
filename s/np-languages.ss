@@ -757,6 +757,8 @@
   (declare-primitive fp* value #t)
   (declare-primitive fp/ value #t)
   (declare-primitive fpt value #t)
+  (declare-primitive fpfma value #t) ; not pb, x86, or arm32
+  (declare-primitive fpfma/link value #t) ; x86_64 only: like fpround, VFMADD213SD directly or via the linker
   (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
   (declare-primitive fpround value #t) ; x86_64 and arm64 only (so we don't use it elsewhere)
   (declare-primitive fpfloor value #t) ; x86_64 and arm64 only (so we don't use it elsewhere)

@@ -6782,16 +6782,19 @@
                    `(seq
                      (set! ,%ac0 (immediate 0))
                      (jump ,%ref-ret (,%ac0)))]))]
-           [(fpround-slow fpfloor-slow fpceiling-slow fptruncate-slow)
+           [(fpround-slow fpfloor-slow fpceiling-slow fptruncate-slow fpfma-slow)
             `(lambda ,(make-info (symbol->string sym) '()) 0 ()
                ,(constant-case architecture
                   [(x86_64)
                    ;; Called by the linker-patchable sequence for `%fpround` and
-                   ;; friends, which is replaced by ROUNDSD when SSE4.1 is available
+                   ;; friends, which is replaced by ROUNDSD when SSE4.1 is available,
+                   ;; or for `%fpfma/link`, which is replaced by VFMADD213SD when
+                   ;; FMA3 is available
                    (let* ([entry (case sym
                                    [(fpround-slow) (lookup-c-entry flround)]
                                    [(fpfloor-slow) (lookup-c-entry flfloor)]
                                    [(fpceiling-slow) (lookup-c-entry flceiling)]
+                                   [(fpfma-slow) (lookup-c-entry flfma)]
                                    [else (lookup-c-entry fltruncate)])]
                           [reg* (remq %rax (add-caller-save-registers '()))]
                           [offset* (map (lambda (i) (fx* 8 i)) (iota (length reg*)))]
