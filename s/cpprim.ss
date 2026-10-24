@@ -4989,6 +4989,36 @@
                     ,(build-fl-call (lookup-c-entry flfma) e1 e2 e3)
                     (unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3))))]
             [else (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])))
+      (define build-flnextafter
+        (lambda (e1 e2)
+          (constant-case ptr-bits
+            [(64)
+             ;; A nonzero flonum's bits, read as a signed integer, move away
+             ;; from zero as the magnitude grows, so step by -1 or 1 according
+             ;; to the sign bit; a zero steps to the smallest subnormal
+             (bind 'always fp (e1 e2)
+               (let ([step (lambda (up?)
+                             (let ([bits (make-tmp 'flbits)])
+                               `(if ,(build-fl= e1 `(quote 0.0))
+                                    (unboxed-fp
+                                     (inline ,null-info ,%fpcastfrom
+                                       ,(if up?
+                                            `(immediate 1)
+                                            (%inline logor ,(%inline sll (immediate -1) (immediate 63)) (immediate 1)))))
+                                    (unboxed-fp
+                                     (let ([,bits (inline ,(make-info-unboxed-args '(#t)) ,%fpcastto ,e1)])
+                                       (inline ,null-info ,%fpcastfrom
+                                         (inline ,null-info ,(if up? %+ %-) ,bits
+                                           ,(%inline logor ,(%inline sra ,bits (immediate 63)) (immediate 1)))))))))])
+                 `(if ,(build-fl= e1 e2)
+                      (unboxed-fp ,e2)
+                      (if (inline ,(make-info-unboxed-args '(#t #t)) ,%fp< ,e1 ,e2)
+                          ,(step #t)
+                          (if (inline ,(make-info-unboxed-args '(#t #t)) ,%fp< ,e2 ,e1)
+                              ,(step #f)
+                              ;; at least one is +nan.0
+                              (unboxed-fp (inline ,(make-info-unboxed-args '(#t #t)) ,%fp+ ,e1 ,e2)))))))]
+            [else (build-fl-call (lookup-c-entry flnextafter) e1 e2)])))
       (define build-flminmax
         (lambda (min?)
           (lambda (e1 e2)
@@ -5088,7 +5118,7 @@
         [(e1 e2) (build-fl-call (lookup-c-entry flhypot) e1 e2)])
 
       (define-inline 3 flnextafter
-        [(e1 e2) (build-fl-call (lookup-c-entry flnextafter) e1 e2)])
+        [(e1 e2) (build-flnextafter e1 e2)])
 
       (define-inline 3 flexpt
         [(e1 e2) (build-fl-call (lookup-c-entry flexpt) e1 e2)])
@@ -5494,7 +5524,7 @@
 
       (define-inline 2 flnextafter
         [(e1 e2) (build-checked-fp-op e1 e2
-                   (lambda (e1 e2) (build-fl-call (lookup-c-entry flnextafter) e1 e2))
+                   build-flnextafter
                    (lambda (e1 e2)
                      (build-libcall #t src sexpr flnextafter e1 e2)))])
 
