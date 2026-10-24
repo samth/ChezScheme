@@ -3337,6 +3337,9 @@
   (fl-op flfma $flfma x y z)
   (fl-op flhypot $flhypot x y)
   (fl-op flnextafter $flnextafter x y)
+  (set-who! $fma-supported? (lambda () (#3%$fma-supported?)))
+  (set-who! $flfma/native (lambda (x y z) (flfma x y z)))
+  (set-who! $flfma/fallback (lambda (x y z) (flfma x y z)))
   (fl-op flfloor $flfloor x)
   (fl-op flceiling $flceiling x))
 

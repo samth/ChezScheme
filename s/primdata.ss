@@ -2052,6 +2052,9 @@
   ($* [sig [(maybe-who number number) -> (number)]] [flags arith-op safeongoodargs])
   ($+ [sig [(maybe-who number number) -> (number)]] [flags arith-op safeongoodargs])
   ($fleqv? [sig [(flonum flonum) -> (boolean)]] [flags pure mifoldable safeongoodargs])
+  ($fma-supported? [sig [() -> (boolean)]] [flags pure unrestricted discard]) ; not mifoldable: depends on the running CPU
+  ($flfma/native [sig [(flonum flonum flonum) -> (flonum)]] [flags arith-op discard safeongoodargs unboxed-arguments])
+  ($flfma/fallback [sig [(flonum flonum flonum) -> (flonum)]] [flags arith-op discard safeongoodargs unboxed-arguments])
   ($flhash [flags single-valued])
   ($flonum->digits [flags single-valued])
   ($flonum-exponent [flags single-valued])

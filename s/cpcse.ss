@@ -759,12 +759,96 @@ LICM
          `(clause (,x* ...) ,interface ,(Expr body avail loops))])
       (Expr ir '() '()))
 
+    ;; EXPERIMENT: loop unswitching for flfma on x86_64. When FMA3 use
+    ;; is decided by a run-time test, each flfma in a loop tests a flag
+    ;; and keeps a C call in the loop, which makes live values spill. So
+    ;; split an outermost loop that calls flfma into two copies under a
+    ;; single test of `$fma-supported?`: one that uses VFMADD231SD and one
+    ;; that calls C. Enabled when CHEZ_FMA_MODE is "unswitch".
+    (define unswitch-enabled?
+      (constant-case architecture
+        [(x86_64) (lambda () (equal? (getenv "CHEZ_FMA_MODE") "unswitch"))]
+        [else (lambda () #f)]))
+
+    (define calls-flfma?
+      (lambda (e)
+        (call/cc
+          (lambda (k)
+            (define-pass find-flfma : Lsrc (ir) -> Lsrc ()
+              (Expr : Expr (ir) -> Expr ()
+                [(call ,preinfo ,pr ,e* ...)
+                 (guard (and (eq? (primref-name pr) 'flfma) (fx= (length e*) 3)))
+                 (k #t)]))
+            (find-flfma e)
+            #f))))
+
+    ;; copy `e`, replacing calls to flfma with calls to `name`; when
+    ;; `fresh?`, also give every variable bound in `e` a new prelex, so
+    ;; that both copies can coexist
+    (define copy-for-unswitch
+      (lambda (e name fresh?)
+        (define renames (make-eq-hashtable))
+        (define bind!
+          (lambda (x)
+            (if fresh?
+                (let ([new (make-prelex (prelex-name x) (prelex-flags x) (prelex-source x) #f)])
+                  (eq-hashtable-set! renames x new)
+                  new)
+                x)))
+        (define rename
+          (lambda (x)
+            (or (eq-hashtable-ref renames x #f)
+                (begin
+                  ; a variable bound outside `e` is now referenced from both copies
+                  (when fresh? (add-ref! x))
+                  x))))
+        (define-pass copy : Lsrc (ir) -> Lsrc ()
+          (Expr : Expr (ir) -> Expr ()
+            [(ref ,maybe-src ,x) `(ref ,maybe-src ,(rename x))]
+            [(set! ,maybe-src ,x ,[e])
+             `(set! ,maybe-src ,(rename x) ,e)]
+            [(call ,preinfo ,pr ,e* ...)
+             (guard (and (eq? (primref-name pr) 'flfma) (fx= (length e*) 3)))
+             `(call ,preinfo ,($sgetprop name (if (fx= (primref-level pr) 3) '*prim3* '*prim2*) #f)
+                ,(map Expr e*) ...)]
+            [(letrec ([,x* ,e*] ...) ,body)
+             (let ([x* (map bind! x*)])
+               `(letrec ([,x* ,(map Expr e*)] ...) ,(Expr body)))]
+            [(letrec* ([,x* ,e*] ...) ,body)
+             (let ([x* (map bind! x*)])
+               `(letrec* ([,x* ,(map Expr e*)] ...) ,(Expr body)))])
+          (CaseLambdaClause : CaseLambdaClause (ir) -> CaseLambdaClause ()
+            [(clause (,x* ...) ,interface ,body)
+             (let ([x* (map bind! x*)])
+               `(clause (,x* ...) ,interface ,(Expr body)))]))
+        (copy e)))
+
+    (define-pass unswitch : Lsrc (ir) -> Lsrc ()
+      (definitions
+        (define split
+          (lambda (e)
+            (with-output-language (Lsrc Expr)
+              `(if (call ,(make-preinfo-call) ,($sgetprop '$fma-supported? '*prim3* #f))
+                   ,(copy-for-unswitch e '$flfma/native #f)
+                   ,(copy-for-unswitch e '$flfma/fallback #t))))))
+      (Expr : Expr (ir) -> Expr ()
+        [(letrec ([,x1 (case-lambda ,preinfo1 (clause (,x* ...) ,interface ,body))])
+           (call ,preinfo2 (ref ,maybe-src ,x2) ,e* ...))
+         (guard (eq? x1 x2) (calls-flfma? body))
+         (split ir)]
+        [(call ,preinfo2 (letrec ([,x1 (case-lambda ,preinfo1 (clause (,x* ...) ,interface ,body))])
+                           (ref ,maybe-src ,x2))
+           ,e* ...)
+         (guard (eq? x1 x2) (calls-flfma? body))
+         (split ir)]))
+
     (lambda (x)
       (let ([mode (enable-cse-licm)])
-        (if mode
-            (fluid-let ([binder-loops (make-eq-hashtable)]
-                        [immutable-ok? (not (mutates-pairs? x))]
-                        [aliases (make-eq-hashtable)])
-              (cpcse x (eq? mode 'reorder-errors)))
-            x)))))
+        (let ([x (if mode
+                     (fluid-let ([binder-loops (make-eq-hashtable)]
+                                 [immutable-ok? (not (mutates-pairs? x))]
+                                 [aliases (make-eq-hashtable)])
+                       (cpcse x (eq? mode 'reorder-errors)))
+                     x)])
+          (if (unswitch-enabled?) (unswitch x) x))))))
 )

@@ -4981,7 +4981,9 @@
                        [else (build-fl-call (lookup-c-entry fltanh) e)])))]
             [else (build-fl-call (lookup-c-entry fltanh) e)])))
       (define build-flfma
-        (lambda (e1 e2 e3)
+        (case-lambda
+         [(e1 e2 e3) (build-flfma #f e1 e2 e3)]
+         [(mode e1 e2 e3)
           (constant-case architecture
             [(arm64 riscv64 loongarch64 ppc32)
              (bind #f fp (e1 e2 e3)
@@ -4996,7 +4998,8 @@
              ;;   helper-check: test `fma-supported` at each use, else call `flfma-slow`
              ;;   helper: always call `flfma-slow` (no patching)
              ;;   nocheck: always VFMADD231SD; ccall: always C via the FFI path
-             (let ([mode (let ([m (getenv "CHEZ_FMA_MODE")]) (if m (string->symbol m) 'patch))]
+             ;;   unswitch: like check, but cpcse splits loops that use flfma on `$fma-supported?`
+             (let ([mode (or mode (let ([m (getenv "CHEZ_FMA_MODE")]) (if m (string->symbol m) 'patch)))]
                    [native (lambda (e1 e2 e3)
                              `(unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3)))]
                    [helper (lambda (prim e1 e2 e3)
@@ -5005,10 +5008,10 @@
                                  ,(%mref (literal ,(make-info-literal #f 'entry (lookup-c-entry fma-supported) 0)) 0)
                                  (immediate 0))])
                (case mode
-                 [(check helper-check)
+                 [(check helper-check unswitch)
                   (bind 'always fp (e1 e2 e3)
                     `(if ,flag-test
-                         ,(if (eq? mode 'check)
+                         ,(if (memq mode '(check unswitch))
                               (build-fl-call (lookup-c-entry flfma) e1 e2 e3)
                               (helper %fpfma/call e1 e2 e3))
                          ,(native e1 e2 e3)))]
@@ -5016,7 +5019,17 @@
                  [(ccall) (build-fl-call (lookup-c-entry flfma) e1 e2 e3)]
                  [(helper) (bind #f fp (e1 e2 e3) (helper %fpfma/call e1 e2 e3))]
                  [else (bind #f fp (e1 e2 e3) (helper %fpfma/patch e1 e2 e3))]))]
-            [else (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])))
+            [else (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])]))
+      (define build-fma-supported?
+        (lambda ()
+          (constant-case architecture
+              [(x86_64)
+               `(if ,(%inline eq?
+                       ,(%mref (literal ,(make-info-literal #f 'entry (lookup-c-entry fma-supported) 0)) 0)
+                       (immediate 0))
+                    (quote #f)
+                    (quote #t))]
+              [else `(quote #f)])))
       (define build-flnextafter
         (lambda (e1 e2)
           (constant-case ptr-bits
@@ -5141,6 +5154,15 @@
 
       (define-inline 3 flfma
         [(e1 e2 e3) (build-flfma e1 e2 e3)])
+      ;; versions of flfma for the copies of a loop that cpcse splits on `$fma-supported?`
+      (define-inline 3 $flfma/native
+        [(e1 e2 e3) (build-flfma 'nocheck e1 e2 e3)])
+      (define-inline 3 $flfma/fallback
+        [(e1 e2 e3) (build-flfma 'ccall e1 e2 e3)])
+      (define-inline 3 $fma-supported?
+        [() (build-fma-supported?)])
+      (define-inline 2 $fma-supported?
+        [() (build-fma-supported?)])
 
       (define-inline 3 flhypot
         [(e1 e2) (build-fl-call (lookup-c-entry flhypot) e1 e2)])
@@ -5543,6 +5565,20 @@
                `(if ,(build-flonums? (list e1 e2 e3))
                     ,(build-flfma e1 e2 e3)
                     ,(build-libcall #t src sexpr flfma e1 e2 e3))))])
+      (let ()
+        (define-syntax define-flfma-variant
+          (syntax-rules ()
+            [(_ name mode)
+             (define-inline 2 name
+               [(e1 e2 e3)
+                (if (and (known-flonum-result? e1) (known-flonum-result? e2) (known-flonum-result? e3))
+                    (build-flfma 'mode e1 e2 e3)
+                    (bind #t (e1 e2 e3)
+                      `(if ,(build-flonums? (list e1 e2 e3))
+                           ,(build-flfma 'mode e1 e2 e3)
+                           ,(build-libcall #t src sexpr flfma e1 e2 e3))))])]))
+        (define-flfma-variant $flfma/native nocheck)
+        (define-flfma-variant $flfma/fallback ccall))
 
       (define-inline 2 flhypot
         [(e1 e2) (build-checked-fp-op e1 e2
