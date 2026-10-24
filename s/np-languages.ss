@@ -757,6 +757,7 @@
   (declare-primitive fp* value #t)
   (declare-primitive fp/ value #t)
   (declare-primitive fpt value #t)
+  (declare-primitive fpfma value #t) ; not pb, x86, or arm32
   (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
   (declare-primitive fptrunc value #t)
   (declare-primitive fpsingle value #t)

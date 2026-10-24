@@ -3199,7 +3199,8 @@
      flsqrt
      null-immutable-vector
      null-immutable-bytevector
-     null-immutable-string))
+     null-immutable-string
+     fma-supported))
 )
 
 
