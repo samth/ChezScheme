@@ -5643,3 +5643,151 @@
        (black-box (expt 2 to-power))
        (loop (sub1 i))))))
   )
+
+(mat fxx*
+  ; fixnum multiplication found by cptypes
+  (equal? (list 12 (* 2 (most-positive-fixnum)) (- (most-negative-fixnum)) -35)
+    ((compile '(lambda (x y z w)
+                 (if (and (fixnum? x) (fixnum? y) (fixnum? z) (fixnum? w))
+                     (list (* x 4) (* y 2) (* z -1) (* w 7))
+                     'no)))
+     3 (most-positive-fixnum) (most-negative-fixnum) -5))
+  )
+
+(mat cpcse
+  ; loop-invariant code motion must not raise for a loop that never runs
+  (equal? 0.0
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (n s)
+                   (let loop ([i 0] [acc 0.0])
+                     (if (fx< i n) (loop (fx+ i 1) (fl+ acc (real->flonum s))) acc)))))
+     0 'bad))
+  (equal? 4.5
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (n s)
+                   (let loop ([i 0] [acc 0.0])
+                     (if (fx< i n) (loop (fx+ i 1) (fl+ acc (real->flonum s))) acc)))))
+     3 3/2))
+  (eq? 'raised ; not a real
+    (guard (c [#t 'raised])
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (n s)
+                   (let loop ([i 0] [acc 0.0])
+                     (if (fx< i n) (loop (fx+ i 1) (fl+ acc (real->flonum s))) acc)))))
+     1 'bad)))
+  ; an effect before the invariant expression happens first
+  (equal? "x"
+    (let-values ([(p get) (open-string-output-port)])
+      (guard (c [#t (get)])
+        (parameterize ([current-output-port p])
+          ((parameterize ([enable-cse-licm #t])
+             (compile '(lambda (n s)
+                         (let loop ([i 0] [acc 0.0])
+                           (if (fx< i n)
+                               (begin (display "x") (loop (fx+ i 1) (fl+ acc (real->flonum s))))
+                               acc)))))
+           3 'bad)))))
+  ; recursion in both branches of the test
+  (equal? 0.0
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (n s)
+                   (let loop ([i 0] [acc 0.0])
+                     (cond [(fx= i n) acc]
+                           [(fxeven? i) (loop (fx+ i 1) acc)]
+                           [else (loop (fx+ i 1) (fl+ acc (real->flonum s)))])))))
+     1 'bad))
+  ; invariant test
+  (equal? 0.0
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (n flag s)
+                   (let loop ([i 0] [acc 0.0])
+                     (if (fx< i n)
+                         (loop (fx+ i 1) (if flag (fl+ acc (real->flonum s)) acc))
+                         acc)))))
+     3 #f 'bad))
+  ; nested loops
+  (equal? '(24.0 0.0 0.0)
+    (let ([f (parameterize ([enable-cse-licm #t])
+               (compile '(lambda (h w s c)
+                           (let yl ([y 0] [acc 0.0])
+                             (if (fx< y h)
+                                 (yl (fx+ y 1)
+                                     (let xl ([x 0] [acc acc])
+                                       (if (fx< x w)
+                                           (xl (fx+ x 1) (fl+ acc (fl* (real->flonum s) (real->flonum (real-part c)))))
+                                           acc)))
+                                 acc)))))])
+      (list (f 3 4 2 1+1i) (f 3 0 'bad 'bad) (f 0 3 'bad 'bad))))
+  ; mutable state is not hoisted
+  (equal? 6
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (v n)
+                   (let loop ([i 0] [acc 0])
+                     (if (fx< i n)
+                         (begin (vector-set! v 0 i) (loop (fx+ i 1) (fx+ acc (vector-ref v 0))))
+                         acc)))))
+     (vector 0) 4))
+  ; non-tail recursion
+  (equal? '(3.0 0.0)
+    (let ([f (parameterize ([enable-cse-licm #t])
+               (compile '(lambda (n s)
+                           (letrec ([f (lambda (i) (if (fx< i n) (fl+ (real->flonum s) (f (fx+ i 1))) 0.0))])
+                             (f 0)))))])
+      (list (f 3 1) (f 0 'bad))))
+  ; common subexpressions
+  (equal? 12.0
+    ((parameterize ([enable-cse-licm #t])
+       (compile '(lambda (x y) (let ([a (fl* x y)]) (fl+ a (fl* x y))))))
+     2.0 3.0))
+  ; speculation: invariant arithmetic after an inner loop
+  (let ([f (parameterize ([enable-cse-licm #t])
+             (compile '(lambda (h w a b)
+                         (let yl ([y 0] [acc '()])
+                           (if (fx< y h)
+                               (yl (fx+ y 1)
+                                   (let xl ([x 0] [acc acc])
+                                     (if (fx< x w)
+                                         (let ([n (let il ([i 0]) (if (fx< i x) (il (fx+ i 1)) i))])
+                                           (xl (fx+ x 1) (cons (+ a (* y b) n) acc)))
+                                         acc)))
+                               (reverse acc))))))])
+    (and (equal? (f 2 3 10 100) '(10 11 12 110 111 112))
+         (equal? (f 1 2 1/2 1.5) '(1/2 3/2))
+         (equal? (f 2 2 (expt 2 62) (expt 2 62))
+                 (list (expt 2 62) (+ (expt 2 62) 1) (expt 2 63) (+ (expt 2 63) 1)))
+         ; the loop does not run, so the bad argument is never used
+         (equal? (f 0 2 'bad 'bad) '())
+         (equal? (f 2 0 'bad 'bad) '())))
+  ; speculation: a failed guard raises at the original point, after earlier effects
+  (equal? "xx"
+    (let-values ([(p get) (open-string-output-port)])
+      (guard (c [(and (who-condition? c) (eq? (condition-who c) '*)) (get)])
+        (parameterize ([current-output-port p])
+          ((parameterize ([enable-cse-licm #t])
+             (compile '(lambda (n a b)
+                         (let loop ([i 0] [acc 0])
+                           (if (fx< i n)
+                               (begin
+                                 (display "x")
+                                 (let il ([j 0]) (when (fx< j i) (il (fx+ j 1))))
+                                 (loop (fx+ i 1) (if (fx= i 1) (+ acc (* a b)) acc)))
+                               acc)))))
+           3 2 'bad)))))
+  ; speculation of a fixnum multiplication found by cptypes
+  (let ([f (parameterize ([enable-cse-licm #t])
+             (compile '(lambda (h w b)
+                         (if (fixnum? b)
+                             (let yl ([y 0] [acc '()])
+                               (if (fx< y h)
+                                   (yl (fx+ y 1)
+                                       (let xl ([x 0] [acc acc])
+                                         (if (fx< x w)
+                                             (let ([n (let il ([i 0]) (if (fx< i x) (il (fx+ i 1)) i))])
+                                               (xl (fx+ x 1) (cons (+ (* y b) n) acc)))
+                                             acc)))
+                                   (reverse acc)))
+                             'no))))])
+    (equal? (f 3 2 (most-positive-fixnum))
+            (list 0 1 (most-positive-fixnum) (+ (most-positive-fixnum) 1)
+                  (* 2 (most-positive-fixnum)) (+ (* 2 (most-positive-fixnum)) 1))))
+)

@@ -844,6 +844,8 @@
                                           x))))]
                            [x2b ($pass-time 'cpcheck (lambda () (do-trace $cpcheck x2a)))]
                            [waste (check-prelex-flags x2b 'cpcheck)]
+                           [x2b ($pass-time 'cpcse (lambda () (do-trace $cpcse x2b)))]
+                           [waste (check-prelex-flags x2b 'cpcse)]
                            [x2b ($pass-time 'cpcommonize (lambda () (do-trace $cpcommonize x2b)))]
                            [waste (check-prelex-flags x2b 'cpcommonize)]
                            [x7 (do-trace $np-compile x2b #t)]
@@ -1821,6 +1823,7 @@
                           (if cpletrec-ran? x
                               ($pass-time 'cpletrec (lambda () ($cpletrec x))))))]
                  [x2b ($pass-time 'cpcheck (lambda () ($cpcheck x2a)))]
+                 [x2b ($pass-time 'cpcse (lambda () ($cpcse x2b)))]
                  [x2b ($pass-time 'cpcommonize (lambda () ($cpcommonize x2b)))])
             (when (and (expand/optimize-output) (not ($noexpand? x0)))
               (pretty-print ($uncprep x2b) (expand/optimize-output))
