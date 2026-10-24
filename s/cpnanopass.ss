@@ -982,7 +982,7 @@
              (let ([tmp (make-tmp 'tp)])
                (uvar-info-lambda-set! tmp info)
                `(letrec ([,tmp ,(Expr ir)])
-                  ,(k tmp src sexpr)))))]
+                  ,(k `(call ,(make-info-call src sexpr check? #f #f) #f ,tmp) src sexpr)))))]
         [(seq ,[Expr : e1] ,[Producer : e2]) `(seq ,e1 ,e2)]
         [(let ([,x* ,[Expr : e*]] ...) ,[Producer : e]) `(let ([,x* ,e*] ...) ,e)]
         [(letrec ([,x* ,[le*]] ...) ,[Producer : e]) `(letrec ([,x* ,le*] ...) ,e)]

@@ -1388,6 +1388,14 @@
   (equal? (call-with-values (lambda () (if (random 10) 2 3)) list)
           '(2))
   (equal? (call-with-values (case-lambda (x x) (() 3)) list) '(()))
+  ; a literal or inlined producer with no zero-argument clause must still be called
+  (error? ; incorrect number of arguments
+    (call-with-values (lambda (x) x) list))
+  (error? ; incorrect number of arguments
+    (call-with-values (case-lambda [(x) x] [(x y) y]) list))
+  (error? ; incorrect number of arguments
+    (let ([p (lambda (x) x)]) (call-with-values p list)))
+  (equal? (call-with-values (case-lambda [(x) x] [() 7]) list) '(7))
   (eqv? (let ([f (lambda () (values 1 2 3))])
           (+ 2 (call-with-values f (lambda x (length x)))))
       5)
