@@ -134,6 +134,7 @@
 (define-hand-coded-library-entry event-detour)
 (define-hand-coded-library-entry popcount-slow) ; before fxpopcount use
 (define-hand-coded-library-entry cpu-features)  ; before fxpopcount use
+(define-hand-coded-library-entry flfma-slow)    ; before flfma use
 
 (define $instantiate-code-object ($hand-coded '$instantiate-code-object))
 

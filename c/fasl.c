@@ -252,6 +252,7 @@ static uptr ppc32_get_jump(void *address);
 static void x86_64_set_jump(void *address, uptr item, IBOOL callp);
 static uptr x86_64_get_jump(void *address);
 static void x86_64_set_popcount(void *address, uptr item);
+static void x86_64_set_fma(void *address, uptr item);
 #endif /* X86_64 */
 #ifdef SPARC64
 static INT extract_reg_from_sethi(void *address);
@@ -1526,6 +1527,9 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
         case reloc_x86_64_popcount:
             x86_64_set_popcount(address, item);
             break;
+        case reloc_x86_64_fma:
+            x86_64_set_fma(address, item);
+            break;
 #endif /* X86_64 */
 #ifdef SPARC64
         case reloc_sparc64abs:
@@ -1632,6 +1636,9 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
             break;
         case reloc_x86_64_popcount:
             item = (uptr)Svector_ref(S_G.library_entry_vector, library_popcount_slow) + o;
+            break;
+        case reloc_x86_64_fma:
+            item = (uptr)Svector_ref(S_G.library_entry_vector, library_flfma_slow) + o;
             break;
 #endif /* X86_64 */
 #ifdef SPARC64
@@ -1897,6 +1904,29 @@ static void x86_64_set_popcount(void *address, uptr item) {
     *((octet *)address + 8) = 0x0F;
     *((octet *)address + 9) = 0x1F;
     *((octet *)address + 10) = 0x40;
+    *((octet *)address + 11) = 0x00;
+  }
+}
+
+/* The call to `flfma-slow` passes its operands in xmm1, xmm2, and xmm0
+   and receives the result in xmm0, so it can be replaced by
+   VFMADD231SD xmm0, xmm1, xmm2 */
+static void x86_64_set_fma(void *address, uptr item) {
+  if (!S_fma_supported()) {
+    x86_64_set_jump(address, item, 1);
+  } else {
+    *((octet *)address + 0) = 0xC4; /* VEX, 3-byte form */
+    *((octet *)address + 1) = 0xE2; /* R=X=B=1 (inverted), map 0F38 */
+    *((octet *)address + 2) = 0xF1; /* W=1, vvvv=xmm1 (inverted), L=0, pp=66 */
+    *((octet *)address + 3) = 0xB9; /* VFMADD231SD */
+    *((octet *)address + 4) = 0xC2; /* mod=11, reg=xmm0, rm=xmm2 */
+    /* 7-byte nop: */
+    *((octet *)address + 5) = 0x0F;
+    *((octet *)address + 6) = 0x1F;
+    *((octet *)address + 7) = 0x80;
+    *((octet *)address + 8) = 0x00;
+    *((octet *)address + 9) = 0x00;
+    *((octet *)address + 10) = 0x00;
     *((octet *)address + 11) = 0x00;
   }
 }

@@ -350,6 +350,7 @@ extern ptr S_strerror(INT errnum);
 extern void S_prim5_init(void);
 extern void S_dump_tc(ptr tc);
 extern ptr S_uninterned(ptr x);
+extern IBOOL S_fma_supported(void);
 
 /* print.c */
 extern void S_print_init(void);

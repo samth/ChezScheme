@@ -6782,6 +6782,18 @@
                    `(seq
                      (set! ,%ac0 (immediate 0))
                      (jump ,%ref-ret (,%ac0)))]))]
+           [(flfma-slow)
+            `(lambda ,(make-info "flfma-slow" '()) 0 ()
+               ,(constant-case architecture
+                  [(x86_64)
+                   `(seq
+                     (inline ,null-info ,%fpfma-slow)
+                     (asm-c-return ,null-info ,%rax))]
+                  [else
+                   ;; Generate anything, since this should not get called
+                   `(seq
+                     (set! ,%ac0 (immediate 0))
+                     (jump ,%ref-ret (,%ac0)))]))]
            [(cpu-features)
             `(lambda ,(make-info "cpu-features" '()) 0 ()
                ,(constant-case architecture

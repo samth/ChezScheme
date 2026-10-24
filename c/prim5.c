@@ -1525,18 +1525,29 @@ static double s_nextafter(double x, double y) { return nextafter(x, y); }
 
 static uptr fma_supported;
 
-static void init_fma_supported(void) {
-    fma_supported = 0;
+/* Also used by the linker to patch calls to `flfma-slow` */
+IBOOL S_fma_supported(void) {
+    static int supported = -1;
+    if (supported < 0) {
+        supported = 0;
 #if defined(__x86_64__) && (defined(__GNUC__) || defined(__clang__))
-    __builtin_cpu_init();
-    fma_supported = !!(__builtin_cpu_supports("fma") && __builtin_cpu_supports("avx"));
+        __builtin_cpu_init();
+        supported = !!(__builtin_cpu_supports("fma") && __builtin_cpu_supports("avx"));
 #elif defined(_MSC_VER) && defined(_M_X64)
-    int regs[4];
-    __cpuid(regs, 1);
-    if ((regs[2] & ((1 << 12) | (1 << 27) | (1 << 28)))
-        == ((1 << 12) | (1 << 27) | (1 << 28)))
-        fma_supported = ((_xgetbv(0) & 6) == 6);
+        int regs[4];
+        __cpuid(regs, 1);
+        if ((regs[2] & ((1 << 12) | (1 << 27) | (1 << 28)))
+            == ((1 << 12) | (1 << 27) | (1 << 28)))
+            supported = ((_xgetbv(0) & 6) == 6);
 #endif
+        /* EXPERIMENT: test the fallback path on FMA3 hardware */
+        if (getenv("CHEZ_FMA_UNSUPPORTED")) supported = 0;
+    }
+    return supported;
+}
+
+static void init_fma_supported(void) {
+    fma_supported = S_fma_supported();
 }
 
 static double s_asinh(double x) { return CHECK_ASINTAN_ZERO(x, asinh(x)); }

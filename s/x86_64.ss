@@ -653,6 +653,20 @@
       `(move-related ,x ,c)
       `(set! ,(make-live-info) ,x (asm ,info ,asm-fpfma ,a ,b ,c)))])
 
+  ;; Calls `flfma-slow` with the operands in fixed registers. The helper
+  ;; preserves every register except %rax, so a fallback to the C library
+  ;; does not make values spill. For fpfma/patch, the linker replaces the
+  ;; call with VFMADD231SD when the CPU and OS support FMA3.
+  (define-instruction value (fpfma/call fpfma/patch)
+    [(op (x fpur) (a fpur) (b fpur) (c fpur))
+     (let ([urax (make-precolored-unspillable 'urax %rax)]) ; rax is assumed by linker's x86_64_set_jump
+       (seq
+        `(set! ,(make-live-info) ,urax (asm ,null-info ,asm-kill))
+        `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpfma-call (eq? op 'fpfma/patch)) ,a ,b ,c ,urax))))])
+
+  (define-instruction effect (fpfma-slow)
+    [(op) `(asm ,info ,asm-fpfma-slow)])
+
   (define-instruction value (fpsqrt)
     [(op (x fpur) (y fpmem fpur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpsqrt ,y))])
 
@@ -907,7 +921,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-store-single asm-load-single asm-fpt asm-fptrunc asm-div asm-popcount
                      asm-exchange asm-pause asm-debug asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-fpsqrt asm-fpfma asm-fpop-2 asm-fpmove asm-fpmove128 asm-fpcast asm-fpsingle
+                     asm-fpsqrt asm-fpfma asm-fpfma-call asm-fpfma-slow asm-fpop-2 asm-fpmove asm-fpmove128 asm-fpcast asm-fpsingle
                      asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
@@ -1787,7 +1801,7 @@
   (define asm-size
     (lambda (x)
       (case (car x)
-        [(asm x86_64-jump x86_64-call x86_64-popcount) 0]
+        [(asm x86_64-jump x86_64-call x86_64-popcount x86_64-fma) 0]
         [(byte) 1]
         [(word) 2]
         [(long) 4]
@@ -1922,6 +1936,66 @@
            (if (equal? dest c)
                (emit vfmadd231sd dest a b code*)
                (emit-fpmove c dest (emit vfmadd231sd dest a b code*))))])))
+
+  ;; xmm0-2 are not allocable, so they can carry the operands: the
+  ;; result accumulates into xmm0 as for VFMADD231SD xmm0, xmm1, xmm2
+  (define asm-fpfma-call
+    (lambda (patch?)
+      (let ([target (if patch?
+                        `(x86_64-fma ,(constant code-data-disp) (library ,(lookup-libspec flfma-slow)))
+                        `(x86_64-call ,(constant code-data-disp) (library ,(lookup-libspec flfma-slow))))])
+        (lambda (code* dest a b c jmp-reg)
+          (Trivit (dest a b c)
+            (let ([x0 (cons 'reg %Cfparg1)] [x1 (cons 'reg %Cfparg2)] [x2 (cons 'reg %Cfparg3)])
+              (emit-fpmove a x1
+                (emit-fpmove b x2
+                  (emit-fpmove c x0
+                    (asm-helper-call (emit-fpmove x0 dest code*) target jmp-reg))))))))))
+
+  ;; Body of `flfma-slow`: calls the C library's `fma` on xmm1 * xmm2 + xmm0,
+  ;; leaving the result in xmm0 and preserving all other registers
+  ;; except %rax
+  (define asm-fpfma-slow
+    (let ([gp-saves (list %rcx %rdx %rsi %rdi %r8 %r9 %r10 %r11)]
+          [fp-saves (reg-list %fp1 %fp2 %fp3 %fp4 %fp5 %fp6 %fp7 %fp8)]
+          [fp-base 32]) ; leaves room for a Windows callee to store its arguments
+      (lambda (code*)
+        (let* ([sp (cons 'reg %sp)]
+               [bp (cons 'reg %rbp)]
+               [fp-slots (let loop ([regs fp-saves] [i 0])
+                           (if (null? regs)
+                               '()
+                               (cons (cons (car regs) `(disp ,(fx+ fp-base (fx* i 16)) ,%sp))
+                                     (loop (cdr regs) (fx+ i 1)))))]
+               [frame-size (fx+ fp-base (fx* 16 (length fp-saves)))]
+               [x0 (cons 'reg %Cfparg1)] [x1 (cons 'reg %Cfparg2)]
+               [x2 (cons 'reg %Cfparg3)] [x3 (cons 'reg %Cfparg4)])
+          (define (pushes regs code*)
+            (if (null? regs) code* (emit push (cons 'reg (car regs)) (pushes (cdr regs) code*))))
+          (define (pops regs code*)
+            (if (null? regs) code* (emit pop (cons 'reg (car regs)) (pops (cdr regs) code*))))
+          (define (saves slots code*)
+            (if (null? slots) code*
+                (emit sse.movdqa (cons 'reg (caar slots)) (cdar slots) (saves (cdr slots) code*))))
+          (define (restores slots code*)
+            (if (null? slots) code*
+                (emit sse.movdqa (cdar slots) (cons 'reg (caar slots)) (restores (cdr slots) code*))))
+          (pushes (append gp-saves (list %rbp))
+            (emit mov sp bp
+              (emit andi '(imm -16) sp
+                (emit subi `(imm ,frame-size) sp
+                  (saves fp-slots
+                    ;; C's fma(a, b, c) takes a, b, c in xmm0, xmm1, xmm2
+                    (emit sse.movapd x0 x3
+                      (emit sse.movapd x1 x0
+                        (emit sse.movapd x2 x1
+                          (emit sse.movapd x3 x2
+                            (asm-helper-call
+                              (restores fp-slots
+                                (emit mov bp sp
+                                  (pops (cons %rbp (reverse gp-saves)) code*)))
+                              `(x86_64-call 0 (entry ,(lookup-c-entry flfma)))
+                              %rax))))))))))))))
 
   (define asm-fpsqrt
     (lambda (code* dest-reg src)

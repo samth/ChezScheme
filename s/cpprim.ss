@@ -3513,7 +3513,7 @@
         (lambda (name)
           (not (memq name '(nuate nonprocedure-code error-invoke invoke
                                   $wrapper-apply wrapper-apply arity-wrapper-apply
-                                  popcount-slow cpu-features)))))
+                                  popcount-slow cpu-features flfma-slow)))))
       (define-inline 2 $hand-coded
         [(name)
          (nanopass-case (L7 Expr) name
@@ -4980,14 +4980,35 @@
              (bind #f fp (e1 e2 e3)
                `(unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3)))]
             [(x86_64)
-             ;; Test at run time: compiled code can be moved between CPUs,
-             ;; and AVX needs operating-system support as well as hardware.
-             (bind 'always fp (e1 e2 e3)
-               `(if ,(%inline eq?
-                       ,(%mref (literal ,(make-info-literal #f 'entry (lookup-c-entry fma-supported) 0)) 0)
-                       (immediate 0))
-                    ,(build-fl-call (lookup-c-entry flfma) e1 e2 e3)
-                    (unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3))))]
+             ;; Compiled code can be moved between CPUs, and AVX needs
+             ;; operating-system support as well as hardware, so FMA3 use is
+             ;; decided when code is loaded or run.
+             ;; EXPERIMENT: CHEZ_FMA_MODE selects among strategies:
+             ;;   patch (default): call `flfma-slow`, which the linker replaces with VFMADD231SD
+             ;;   check: test `fma-supported` at each use, else call C via the FFI path
+             ;;   helper-check: test `fma-supported` at each use, else call `flfma-slow`
+             ;;   helper: always call `flfma-slow` (no patching)
+             ;;   nocheck: always VFMADD231SD; ccall: always C via the FFI path
+             (let ([mode (let ([m (getenv "CHEZ_FMA_MODE")]) (if m (string->symbol m) 'patch))]
+                   [native (lambda (e1 e2 e3)
+                             `(unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,%fpfma ,e1 ,e2 ,e3)))]
+                   [helper (lambda (prim e1 e2 e3)
+                             `(unboxed-fp (inline ,(make-info-unboxed-args '(#t #t #t)) ,prim ,e1 ,e2 ,e3)))]
+                   [flag-test `(inline ,null-info ,%eq?
+                                 ,(%mref (literal ,(make-info-literal #f 'entry (lookup-c-entry fma-supported) 0)) 0)
+                                 (immediate 0))])
+               (case mode
+                 [(check helper-check)
+                  (bind 'always fp (e1 e2 e3)
+                    `(if ,flag-test
+                         ,(if (eq? mode 'check)
+                              (build-fl-call (lookup-c-entry flfma) e1 e2 e3)
+                              (helper %fpfma/call e1 e2 e3))
+                         ,(native e1 e2 e3)))]
+                 [(nocheck) (bind #f fp (e1 e2 e3) (native e1 e2 e3))]
+                 [(ccall) (build-fl-call (lookup-c-entry flfma) e1 e2 e3)]
+                 [(helper) (bind #f fp (e1 e2 e3) (helper %fpfma/call e1 e2 e3))]
+                 [else (bind #f fp (e1 e2 e3) (helper %fpfma/patch e1 e2 e3))]))]
             [else (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])))
       (define build-flnextafter
         (lambda (e1 e2)

@@ -1479,6 +1479,8 @@
              (libspec-index (lookup-libspec popcount-slow)))
         (def "library_cpu_features"
              (libspec-index (lookup-libspec cpu-features)))
+        (def "library_flfma_slow"
+             (libspec-index (lookup-libspec flfma-slow)))
 
       )))
 )
