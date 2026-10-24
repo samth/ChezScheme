@@ -200,6 +200,10 @@
 #include <io.h>
 #endif /* WIN32 */
 
+#if defined(X86_64) && defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #ifdef NAN_INCLUDE
 #include NAN_INCLUDE
 #endif
@@ -254,6 +258,7 @@ static uptr x86_64_get_jump(void *address);
 static void x86_64_set_popcount(void *address, uptr item);
 static void x86_64_set_fpround(void *address, uptr item, int mode);
 static iptr x86_64_fpround_slow_index(int mode);
+static void x86_64_set_fma(void *address, uptr item);
 #endif /* X86_64 */
 #ifdef SPARC64
 static INT extract_reg_from_sethi(void *address);
@@ -1532,6 +1537,9 @@ void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {
             /* rounding mode is added to the usual item offset */
             x86_64_set_fpround(address, item - (o - code_data_disp), (int)(o - code_data_disp));
             break;
+        case reloc_x86_64_fma:
+            x86_64_set_fma(address, item);
+            break;
 #endif /* X86_64 */
 #ifdef SPARC64
         case reloc_sparc64abs:
@@ -1642,6 +1650,9 @@ ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o) {
         case reloc_x86_64_fpround:
             /* rounding mode is added to the usual item offset */
             item = (uptr)Svector_ref(S_G.library_entry_vector, x86_64_fpround_slow_index((int)(o - code_data_disp))) + o;
+            break;
+        case reloc_x86_64_fma:
+            item = (uptr)Svector_ref(S_G.library_entry_vector, library_fpfma_slow) + o;
             break;
 #endif /* X86_64 */
 #ifdef SPARC64
@@ -1943,6 +1954,38 @@ static void x86_64_set_fpround(void *address, uptr item, int mode) {
   }
 }
 
+static int fma_present;
+
+static void x86_64_set_fma(void *address, uptr item) {
+  if (!fma_present) {
+    x86_64_set_jump(address, item, 1);
+  } else {
+    *((octet *)address + 0) = 0xC4; /* VFMADD213SD XMM0, XMM1, XMM2 */
+    *((octet *)address + 1) = 0xE2;
+    *((octet *)address + 2) = 0xF1;
+    *((octet *)address + 3) = 0xA9;
+    *((octet *)address + 4) = 0xC2;
+    /* 7-byte nop: */
+    *((octet *)address + 5) = 0x0F;
+    *((octet *)address + 6) = 0x1F;
+    *((octet *)address + 7) = 0x80;
+    *((octet *)address + 8) = 0x00;
+    *((octet *)address + 9) = 0x00;
+    *((octet *)address + 10) = 0x00;
+    *((octet *)address + 11) = 0x00;
+  }
+}
+
+static U64 x86_64_xcr0(void) {
+#if defined(_MSC_VER)
+  return _xgetbv(0);
+#else
+  unsigned int eax, edx;
+  __asm__ __volatile__ ("xgetbv" : "=a" (eax), "=d" (edx) : "c" (0));
+  return ((U64)edx << 32) | eax;
+#endif
+}
+
 void x86_64_set_cpu_features(ptr code) {
   /* cpu_features returns ECX after CPUID for function 1 */
   int (*cpu_features)() = (int (*)())((uptr)code + code_data_disp);
@@ -1951,6 +1994,9 @@ void x86_64_set_cpu_features(ptr code) {
     popcount_present = 1;
   if (ecx & (1 << 19))
     sse41_present = 1;
+  if (((ecx & (1 << 12)) && (ecx & (1 << 27)) && (ecx & (1 << 28)))
+      && ((x86_64_xcr0() & 6) == 6))
+    fma_present = 1;
 }
 
 #endif /* X86_64 */

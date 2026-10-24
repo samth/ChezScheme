@@ -656,6 +656,27 @@
     [(op (x fpur) (y fpmem) (z fpmem fpur))
      `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpminmax op) ,y ,z))])
 
+  (define-instruction value (fpfma)
+    [(op (x fpur) (a fpur) (b fpur) (c fpur))
+     (seq
+      `(move-related ,x ,c)
+      `(set! ,(make-live-info) ,x (asm ,info ,asm-fpfma ,a ,b ,c)))])
+
+  (define-instruction value (fpfma/link)
+    [(op (x fpur) (a fpur) (b fpur) (c fpur))
+     (constant-case x86-64-level
+       [(3 4)
+        ;; Direct VFMADD instruction variant
+        (seq
+         `(move-related ,x ,c)
+         `(set! ,(make-live-info) ,x (asm ,info ,asm-fpfma ,a ,b ,c)))]
+       [else
+        ;; Link-editable variant
+        (let ([urax (make-precolored-unspillable 'urax %rax)]) ; rax is assumed by linker's x86_64_set_jump
+          (seq
+           `(set! ,(make-live-info) ,urax (asm ,null-info ,asm-kill))
+           `(set! ,(make-live-info) ,x (asm ,info ,asm-fpfma-link ,a ,b ,c ,urax))))])])
+
   (define-instruction value (fpsqrt)
     [(op (x fpur) (y fpmem fpur)) `(set! ,(make-live-info) ,x (asm ,info ,asm-fpsqrt ,y))])
 
@@ -923,7 +944,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-store-single asm-load-single asm-fpt asm-fptrunc asm-div asm-popcount
                      asm-exchange asm-pause asm-debug asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-fpsqrt asm-fpround asm-fpop-2 asm-fpminmax asm-fpmove asm-fpmove128 asm-fpcast asm-fpsingle
+                     asm-fpsqrt asm-fpround asm-fpfma asm-fpfma-link asm-fpop-2 asm-fpminmax asm-fpmove asm-fpmove128 asm-fpcast asm-fpsingle
                      asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
@@ -1099,6 +1120,8 @@
   (define-op bgt branch-op #b1111) ; jump on greater than
 
   ; SSE2 instructions
+  (define-op vfmadd213sd fma-op #xa9)
+  (define-op vfmadd231sd fma-op #xb9)
   (define-op sse.addsd     sse-op1 #xF2 #x58 0)
   (define-op sse.andpd     sse-op1 #x66 #x54 0)
   (define-op sse.cvtss2sd  sse-op1 #xF3 #x5A 0)
@@ -1521,6 +1544,19 @@
       (emit-code (op code*)
         (build byte op-code))))
 
+  (define fma-op
+    (lambda (op opcode dest a b code*)
+      (emit-code (op dest a b code*)
+        (build byte #xc4)
+        (build byte (byte-fields
+                      [7 (if (fxbit-set? (ax-ea-reg-code dest) 3) 0 1)]
+                      [6 1]
+                      [5 (if (fxbit-set? (ax-ea-reg-code b) 3) 0 1)]
+                      [0 2]))
+        (build byte (byte-fields [7 1] [3 (fxlogxor (ax-ea-reg-code a) 15)] [0 1]))
+        (build byte opcode)
+        (ax-ea-modrm-reg b dest))))
+
   (define two-byte-op
     (lambda (op op-code1 op-code2 code*)
       (emit-code (op code*)
@@ -1828,7 +1864,7 @@
   (define asm-size
     (lambda (x)
       (case (car x)
-        [(asm x86_64-jump x86_64-call x86_64-popcount x86_64-fpround) 0]
+        [(asm x86_64-jump x86_64-call x86_64-popcount x86_64-fpround x86_64-fma) 0]
         [(byte) 1]
         [(word) 2]
         [(long) 4]
@@ -1988,6 +2024,35 @@
               (emit-fpmove src1 dest-reg
                 (emit-min/max dest-reg (cons 'reg %Cfparg2)
                   (emit sse.orpd (cons 'reg %Cfparg1) dest-reg code*)))))))))))
+
+  (define asm-fpfma
+    (lambda (code* dest a b c)
+      (cond
+        [(eq? dest a)
+         (Trivit (dest b c) (emit vfmadd213sd dest b c code*))]
+        [(eq? dest b)
+         (Trivit (dest a c) (emit vfmadd213sd dest a c code*))]
+        [else
+         (Trivit (dest a b c)
+           (if (equal? dest c)
+               (emit vfmadd231sd dest a b code*)
+               (emit-fpmove c dest (emit vfmadd231sd dest a b code*))))])))
+
+  ;; Link-editable sequence for `fpfma/link`: moves the operands to
+  ;; xmm0, xmm1, and xmm2 (as for C's `fma`) and calls `fpfma-slow`,
+  ;; which leaves the result in xmm0. When FMA3 is available, the linker
+  ;; replaces the call with VFMADD213SD xmm0, xmm1, xmm2. Using
+  ;; %Cfparg1-3 as scratch registers makes the same assumption as
+  ;; `asm-fpop-2`.
+  (define asm-fpfma-link
+    (let ([target `(x86_64-fma ,(constant code-data-disp) (library ,(lookup-libspec fpfma-slow)))])
+      (lambda (code* dest a b c jmp-reg)
+        (Trivit (dest a b c)
+          (let ([x0 (cons 'reg %Cfparg1)] [x1 (cons 'reg %Cfparg2)] [x2 (cons 'reg %Cfparg3)])
+            (emit-fpmove a x0
+              (emit-fpmove b x1
+                (emit-fpmove c x2
+                  (asm-helper-call (emit-fpmove x0 dest code*) target jmp-reg)))))))))
 
   (define asm-fpsqrt
     (lambda (code* dest-reg src)

@@ -598,7 +598,7 @@
   (sparc reloc-sparcabs reloc-sparcrel)
   (sparc64 reloc-sparc64abs reloc-sparc64rel)
   (ppc reloc-ppccall reloc-ppcload)
-  (x86_64 reloc-x86_64-call reloc-x86_64-jump reloc-x86_64-popcount reloc-x86_64-fpround)
+  (x86_64 reloc-x86_64-call reloc-x86_64-jump reloc-x86_64-popcount reloc-x86_64-fpround reloc-x86_64-fma)
   (arm32 reloc-arm32-abs reloc-arm32-call reloc-arm32-jump)
   (arm64 reloc-arm64-abs reloc-arm64-call reloc-arm64-jump)
   (ppc32 reloc-ppc32-abs reloc-ppc32-call reloc-ppc32-jump)
@@ -3120,6 +3120,7 @@
      (fpfloor-slow #f 0 #f #t)
      (fpceiling-slow #f 0 #f #t)
      (fptruncate-slow #f 0 #f #t)
+     (fpfma-slow #f 0 #f #t)
   ))
 
 (let ()
