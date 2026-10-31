@@ -366,7 +366,9 @@ static s_thread_rv_t start_thread(void *p) {
   cp = CP(tc);
   CP(tc) = Svoid; /* should hold calling code object, which we don't have */
   TRAP(tc) = (ptr)default_timer_ticks;
+  S_sampler_thread_start();
   Scall0(cp);
+  S_sampler_thread_stop();
  /* caution: calling into Scheme may result into a collection, so we
     can't access any Scheme objects, e.g., cp, after this point.  But tc
     is static, so we can access it. */

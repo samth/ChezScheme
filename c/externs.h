@@ -387,6 +387,13 @@ extern void S_fire_collector(void);
 extern NORETURN void S_noncontinuable_interrupt(void);
 extern void S_schsig_init(void);
 extern void S_schsig_deinit(void);
+extern void S_sampler_thread_start(void);
+extern void S_sampler_thread_stop(void);
+extern void S_sampler_gc_begin(void);
+extern void S_sampler_gc_end(void);
+extern void S_sampler_foreign_init(void);
+extern void S_sampler_print_stack(void);
+extern void S_sampler_print_stack_at(uptr pc, uptr sfp);
 #ifdef DEFINE_MATHERR
 #include <math.h>
 extern INT matherr(struct exception *x);

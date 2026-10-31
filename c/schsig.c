@@ -18,6 +18,8 @@
 #include <setjmp.h>
 #include <errno.h>
 
+#include "sampler.inc"
+
 /* locally defined functions */
 static void split(ptr k, ptr *s);
 static void reset_scheme(ptr tc);
@@ -964,6 +966,8 @@ void S_schsig_deinit(void) {
 }
 
 void S_schsig_init(void) {
+    S_sampler_init();
+
     if (S_boot_time) {
         ptr p;
         ptr tc = get_thread_context();

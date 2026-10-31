@@ -3050,6 +3050,8 @@ static void setup_sweepers(thread_gc *tgc) {
 static s_thread_rv_t start_sweeper(void *_sweeper) {
   gc_sweeper *sweeper = _sweeper;
 
+  S_sampler_thread_start();
+
 #if !defined(WRITE_XOR_EXECUTE_CODE)
   S_thread_start_code_write((ptr)0, static_generation, 0, NULL, 0); /* never ended */
 #endif

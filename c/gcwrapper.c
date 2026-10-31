@@ -1206,7 +1206,9 @@ ptr S_do_gc(IGEN max_cg, IGEN min_tg, IGEN max_tg, ptr count_roots) {
     new_g = S_G.new_max_nonstatic_generation;
     old_g = S_G.max_nonstatic_generation;
    /* first, collect everything to old_g, ignoring min_tg */
+    S_sampler_gc_begin();
     result = S_gc(tc, old_g, old_g, old_g, count_roots);
+    S_sampler_gc_end();
    /* now transfer old_g info to new_g, and clear old_g info */
     S_G.bytes_of_generation[new_g] = S_G.bytes_of_generation[old_g]; S_G.bytes_of_generation[old_g] = 0;
     for (s = 0; s <= max_real_space; s += 1) {
@@ -1302,7 +1304,9 @@ ptr S_do_gc(IGEN max_cg, IGEN min_tg, IGEN max_tg, ptr count_roots) {
     S_G.min_free_gen = S_G.new_min_free_gen;
     S_G.max_nonstatic_generation = new_g;
   } else {
+    S_sampler_gc_begin();
     result = S_gc(tc, max_cg, min_tg, max_tg, count_roots);
+    S_sampler_gc_end();
   }
 
  /* eagerly give collecting thread, the only one guaranteed to be

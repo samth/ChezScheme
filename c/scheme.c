@@ -74,6 +74,7 @@ static void main_init(void) {
     S_print_init();
     S_stats_init();
     S_foreign_init();
+    S_sampler_foreign_init();
     S_prim_init();
     S_prim5_init();
     S_fasl_init();
