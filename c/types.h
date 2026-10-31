@@ -467,6 +467,12 @@ typedef struct {
 typedef struct thread_gc {
   ptr tc;
 
+#if frame_chain_words
+  /* the most recent stack copied by copy_stack, so that sweeping it can
+     relocate the frame-pointer chain words in its frames */
+  uptr chain_old, chain_new;
+#endif
+
   int during_alloc;
   IBOOL queued_fire;
   IBOOL preserve_ownership;

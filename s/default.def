@@ -1,5 +1,8 @@
 ;; types that are right for most platforms:
 (define-constant-default int-bits 32)
+;; words a nontail-call frame reserves for the frame-pointer chain (see
+;; %fpchain in the machine's register definitions); 0 means no chain
+(define-constant-default frame-chain-words 0)
 (define-constant-default short-bits 16)
 (define-constant-default stdbool-bits 8)
 (define-constant-default typedef-ptr "void *")

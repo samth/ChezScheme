@@ -46,7 +46,7 @@
         ((pargs->new) src sexpr check? pariah? error? #f '())]))))
 
 (define-record-type info-newframe
-  (nongenerative #{info-newframe bcpkdd2y9yyv643zicd4jbe3y-4})
+  (nongenerative #{info-newframe bcpkdd2y9yyv643zicd4jbe3y-4fp})
   (parent info)
   (sealed #t)
   (fields
@@ -58,11 +58,13 @@
     (mutable weight)
     (mutable call-live*)
     (mutable frame-words)
-    (mutable local-save*))
+    (mutable local-save*)
+    ; whether the frame reserves a word for the frame-pointer chain (see frame-chain-words)
+    (mutable frame-chain?))
   (protocol
     (lambda (pargs->new)
       (lambda (src sexpr cnfv* nfv* nfv**)
-        ((pargs->new) src sexpr cnfv* nfv* nfv** 0 #f #f #f)))))
+        ((pargs->new) src sexpr cnfv* nfv* nfv** 0 #f #f #f (fx= (frame-chain-words) 1))))))
 
 (define-record-type info-kill*
   (nongenerative #{info-kill* bcpkdd2y9yyv643zicd4jbe3y-5})

@@ -4183,7 +4183,21 @@
                      (lambda (tl)
                        (if rpl
                            ;; `label-ref` offset is adjusted later if return point turns out to be compact
-                           (%seq (set! ,%ref-ret (label-ref ,rpl ,(constant size-rp-header))) ,tl)
+                           (meta-cond
+                             [(real-register? '%fpchain)
+                              ;; Link the frame-pointer chain: %fpchain holds this frame's
+                              ;; entry (set by our caller's call, or by set-frame-chain at
+                              ;; the last return point); store it just below the callee's
+                              ;; return-address slot and point %fpchain there.  Doing this
+                              ;; next to the jump means that no spilled temporary can still
+                              ;; be using that word.
+                              (%seq
+                                (set! ,(%mref ,%sfp ,(fx- (constant ptr-bytes))) ,%fpchain)
+                                (set! ,%fpchain ,(%inline - ,%sfp (immediate ,(constant ptr-bytes))))
+                                (set! ,%ref-ret (label-ref ,rpl ,(constant size-rp-header)))
+                                ,tl)]
+                             [else
+                              (%seq (set! ,%ref-ret (label-ref ,rpl ,(constant size-rp-header))) ,tl)])
                            (meta-cond
                              [(real-register? '%ret) (%seq (set! ,%ret ,(get-ret-fv)) ,tl)]
                              [else tl]))))
@@ -6749,7 +6763,15 @@
                     ,(restore-scheme-state
                        (in %ac0 %cp scheme-args)
                        (out %ac1 %xp %yp %ts %td extra-regs))
-                    (new-frame ,(make-info-newframe #f #f '() '() '()) ,'() ... ,Lret)
+                    (new-frame ,(let ([info (make-info-newframe #f #f '() '() '())])
+                                  ; fix the frame size at what the hack below assumes, without
+                                  ; a frame-chain word (see frame-chain-words); S_return and the
+                                  ; rp-header below know this frame's layout
+                                  (info-newframe-frame-words-set! info 1)
+                                  (info-newframe-local-save*-set! info '())
+                                  (info-newframe-frame-chain?-set! info #f)
+                                  info)
+                               ,'() ... ,Lret)
                     ; NB: hack!!! Asssuming a frame-size calculation:
                     (set! ,%sfp ,(%inline - ,%sfp (immediate ,(constant-case stack-word-alignment
                                                                 [(2) (fx* 2 (constant ptr-bytes))]
@@ -9332,6 +9354,24 @@
         (define-pass assign-new-frame! : (L15a Dummy) (ir lambda-info live-size varvec reg-spillinfo block*) -> (L15b Dummy) ()
           (definitions
             (define remove-var (make-remove-var live-size reg-spillinfo))
+            ; Keep %fpchain = %sfp - 8 across nontail calls.  At a call, the
+            ; frame's reserved word just below the callee's return-address slot
+            ; gets the caller's chain entry, so the word at the callee's %fpchain
+            ; links to the caller's and the word after it is the callee's return
+            ; address, as a frame-pointer unwinder (such as perf's) expects.  Each
+            ; return point recomputes the entry from %sfp.  Nothing recomputes it
+            ; before a call: code that installs a new %sfp without a return point
+            ; (entry from C, a stack overflow, call/cc) leaves %fpchain at a still
+            ; valid link (C's frame pointer, or the frame's old copy), which is
+            ; better than the word below a fresh stack segment.
+            (define set-frame-chain
+              (lambda (live)
+                (meta-cond
+                  [(real-register? '%fpchain)
+                   (with-output-language (L15b Effect)
+                     `(set! ,(make-live-info live) ,%fpchain
+                        (inline ,null-info ,%- ,%sfp (immediate ,(constant ptr-bytes)))))]
+                  [else (sorry! 'set-frame-chain "no frame-chain register")])))
             (define find-max-fv
               (lambda (call-live*)
                 (fold-left
@@ -9359,7 +9399,7 @@
                           (uvar-location-set! nfv home)
                           (update-conflict! home nfv reg-spillinfo)
                           (set-offsets! (cdr nfv*) (fx+ offset 1))))))
-                (let ([arg-offset (fx+ (length cnfv*) 1)]) ; +1 for return address slot
+                (let ([arg-offset (fx+ (length cnfv*) (frame-chain-words) 1)]) ; +1 for return address slot
                   (let loop ([base (fx+ (find-max-fv call-live*) 1)])
                     (let ([arg-base (fx+ base arg-offset)])
                       (if (and (stack-aligned-first-argument? arg-base)
@@ -9412,7 +9452,8 @@
                   (info-newframe-frame-words-set! info
                     (let ([cnfv* (info-newframe-cnfv* info)])
                       (fx+ (assign-new-frame! cnfv* (cons (info-newframe-nfv* info) (info-newframe-nfv** info)) call-live*)
-                        (length cnfv*))))
+                        (length cnfv*)
+                        (if (info-newframe-frame-chain? info) (frame-chain-words) 0))))
                   (info-newframe-local-save*-set! info
                     (filter (lambda (x) (and (uvar? x) (uvar-local-save? x))) call-live*)))))
             (define record-inspector-info!
@@ -9462,9 +9503,10 @@
              (process-info-newframe! info)
              (with-output-language (L15b Effect)
                (let ([live (live-info-live live-info)])
-                 (cons*
-                   `(fp-offset ,live-info ,(fx- (fx* (info-newframe-frame-words info) (constant ptr-bytes))))
-                   `(overflood-check ,(make-live-info live))
+                 (append
+                   (list `(fp-offset ,live-info ,(fx- (fx* (info-newframe-frame-words info) (constant ptr-bytes)))))
+                   (if (info-newframe-frame-chain? info) (list (set-frame-chain live)) '())
+                   (list `(overflood-check ,(make-live-info live)))
                    new-effect*)))]
             [(restore-local-saves ,live-info ,info)
              (with-output-language (L15b Effect)
@@ -9524,6 +9566,8 @@
                                  (let ([loc (uvar-location x)])
                                    ($add-move! x loc 2)
                                    (cons `(set! ,(make-live-info live) ,loc ,x) new-effect*)))
+                               ; the chain is stored and %fpchain moved at the call
+                               ; itself; see set-return-address in build-call
                                (cons `(fp-offset ,(make-live-info live) ,(fx* (info-newframe-frame-words info) (constant ptr-bytes))) '())
                                (info-newframe-local-save* info)))))]
                       [else (sorry! who "unrecognized block ~s" block)])

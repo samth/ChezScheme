@@ -1,6 +1,9 @@
 (define-constant architecture 'arm64)
 (define-constant ptr-bits 64)
 
+;; keep a frame-pointer chain in x29 for frame-pointer unwinders such as perf's
+(define-constant-default frame-chain-words (if-feature windows 0 1))
+
 (define-constant asm-arg-reg-max 14)
 (define-constant asm-arg-reg-cnt 3)
 (define-constant asm-fpreg-max 6)

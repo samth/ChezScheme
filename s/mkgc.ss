@@ -1043,7 +1043,13 @@
    :? (!= fp base)
    (when (< fp base)
      (S_error_abort "sweep_stack(gc): malformed stack"))
-   (set! fp (- fp (ENTRYFRAMESIZE ret)))
+   (let* ([prev : uptr fp])
+     (set! fp (- fp (ENTRYFRAMESIZE ret)))
+     ;; when the stack was just copied, the frame-pointer chain word below
+     ;; the frame at `prev` still links into the old copy (see gc.c)
+     (case-mode
+      [(sweep) (relocate_frame_chain_word _tgc_ base prev fp)]
+      [else]))
    (let* ([oldret : iptr ret]
           [num : ptr (ENTRYLIVEMASK oldret)] ; keep close to `ENTRYFRAMESIZE`
           [pp : ptr* (cast ptr* (TO_VOIDP fp))])

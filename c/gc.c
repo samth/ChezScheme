@@ -763,6 +763,24 @@ FORCEINLINE void check_triggers(thread_gc *tgc, seginfo *si) {
   }
 }
 
+#if frame_chain_words
+/* Code keeps a frame-pointer chain (see %fpchain in the machine's register
+   definitions): the word just below a frame's return-address slot holds
+   the address of its caller's chain entry, the word just below the caller's
+   frame. When copy_stack has just copied the stack that a sweep is walking,
+   that address still points into the old copy, so relocate it, but only
+   when it is exactly the old copy's entry for the frame at `fp`. */
+static void relocate_frame_chain_word(thread_gc *tgc, uptr base, uptr prev, uptr fp) {
+  if (base == tgc->chain_new) {
+    uptr *slot = TO_VOIDP(prev - sizeof(ptr));
+    if (*slot == tgc->chain_old + (fp - base) - sizeof(ptr))
+      *slot = fp - sizeof(ptr);
+  }
+}
+#else
+# define relocate_frame_chain_word(tgc, base, prev, fp) do { } while (0)
+#endif
+
 #if defined(ENABLE_OBJECT_COUNTS)
 # include "gc-oce.inc"
 #elif defined(ENABLE_PARALLEL)
@@ -846,6 +864,10 @@ static ptr copy_stack(thread_gc *tgc, ptr old, iptr *length, iptr clength) {
     n = ptr_align(clength);
     /* warning: stack may have been left non-double-aligned by split_and_resize */
     memcpy_aligned(TO_VOIDP(new), TO_VOIDP(old), n);
+#if frame_chain_words
+    tgc->chain_old = (uptr)old;
+    tgc->chain_new = (uptr)new;
+#endif
 
     /* also returning possibly updated value in *length */
     return new;

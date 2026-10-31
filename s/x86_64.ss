@@ -50,45 +50,90 @@
       [%Cfparg3            #f  2 fp]
       [%Cfparg4            #f  3 fp]
       [%sp                 #t  4 uptr]))
-  (define-registers
-    (reserved
-      [%tc  %r14           #t 14 uptr]
-      [%sfp %r13           #t 13 uptr]
-      [%ap  %r9  %Carg6    #f  9 uptr]
-      #;[%esp]
-      #;[%eap]
-      #;[%trap])
-    (allocable
-      [%ac0 %rbp           #t  5 uptr]
-      [%xp  %r12           #t 12 uptr]
-      [%ts  %rax %Cretval  #f  0 uptr]
-      [%td  %rbx           #t  3 uptr]
-      [%ac1 %r10 %deact    #f 10 uptr]
-      [%yp  %r11           #f 11 uptr]
-      [%cp  %r15           #t 15 uptr]
-      [#;%ret %r8  %Carg5  #f  8 uptr]
-      [     %rdi %Carg1    #f  7 uptr]
-      [     %rsi %Carg2    #f  6 uptr]
-      [     %rdx %Carg3    #f  2 uptr]
-      [     %rcx %Carg4    #f  1 uptr]
-      [%fp1                #f  8 fp]
-      [%fp2                #f  9 fp]
-      [%fp3                #f  10 fp]
-      [%fp4                #f  11 fp]
-      [%fp5                #f  12 fp]
-      [%fp6                #f  13 fp]
-      [%fp7                #f  14 fp]
-      [%fp8                #f  15 fp])
-    (machine-dependent
-      [%Cfparg1 %Cfpretval #f  0 fp] ; no FP registers are callee-save
-      [%Cfparg2            #f  1 fp]
-      [%Cfparg3            #f  2 fp]
-      [%Cfparg4            #f  3 fp]
-      [%Cfparg5            #f  4 fp]
-      [%Cfparg6            #f  5 fp]
-      [%Cfparg7            #f  6 fp]
-      [%Cfparg8            #f  7 fp]
-      [%sp                 #t  4 uptr])))
+  (meta-cond
+    [(fx= (constant frame-chain-words) 1)
+    (define-registers
+      (reserved
+        [%tc  %r14           #t 14 uptr]
+        [%sfp %r13           #t 13 uptr]
+        [%ap  %r9  %Carg6    #f  9 uptr]
+        ; %rbp is reserved for a frame-pointer chain that perf and other
+        ; frame-pointer unwinders can follow through Scheme frames; it always
+        ; holds %sfp - 8, and the word there links to the caller's chain entry
+        [%fpchain %rbp       #t  5 uptr]
+        #;[%esp]
+        #;[%eap]
+        #;[%trap])
+      (allocable
+        [%ac0 %r11           #f 11 uptr]
+        [%xp  %r12           #t 12 uptr]
+        [%ts  %rax %Cretval  #f  0 uptr]
+        [%td  %rbx           #t  3 uptr]
+        [%ac1 %r10 %deact    #f 10 uptr]
+        [%yp  %r8  %Carg5    #f  8 uptr]
+        [%cp  %r15           #t 15 uptr]
+        [     %rdi %Carg1    #f  7 uptr]
+        [     %rsi %Carg2    #f  6 uptr]
+        [     %rdx %Carg3    #f  2 uptr]
+        [     %rcx %Carg4    #f  1 uptr]
+        [%fp1                #f  8 fp]
+        [%fp2                #f  9 fp]
+        [%fp3                #f  10 fp]
+        [%fp4                #f  11 fp]
+        [%fp5                #f  12 fp]
+        [%fp6                #f  13 fp]
+        [%fp7                #f  14 fp]
+        [%fp8                #f  15 fp])
+      (machine-dependent
+        [%Cfparg1 %Cfpretval #f  0 fp] ; no FP registers are callee-save
+        [%Cfparg2            #f  1 fp]
+        [%Cfparg3            #f  2 fp]
+        [%Cfparg4            #f  3 fp]
+        [%Cfparg5            #f  4 fp]
+        [%Cfparg6            #f  5 fp]
+        [%Cfparg7            #f  6 fp]
+        [%Cfparg8            #f  7 fp]
+        [%sp                 #t  4 uptr]))]
+    [else
+    (define-registers
+      (reserved
+        [%tc  %r14           #t 14 uptr]
+        [%sfp %r13           #t 13 uptr]
+        [%ap  %r9  %Carg6    #f  9 uptr]
+        #;[%esp]
+        #;[%eap]
+        #;[%trap])
+      (allocable
+        [%ac0 %rbp           #t  5 uptr]
+        [%xp  %r12           #t 12 uptr]
+        [%ts  %rax %Cretval  #f  0 uptr]
+        [%td  %rbx           #t  3 uptr]
+        [%ac1 %r10 %deact    #f 10 uptr]
+        [%yp  %r11           #f 11 uptr]
+        [%cp  %r15           #t 15 uptr]
+        [#;%ret %r8  %Carg5  #f  8 uptr]
+        [     %rdi %Carg1    #f  7 uptr]
+        [     %rsi %Carg2    #f  6 uptr]
+        [     %rdx %Carg3    #f  2 uptr]
+        [     %rcx %Carg4    #f  1 uptr]
+        [%fp1                #f  8 fp]
+        [%fp2                #f  9 fp]
+        [%fp3                #f  10 fp]
+        [%fp4                #f  11 fp]
+        [%fp5                #f  12 fp]
+        [%fp6                #f  13 fp]
+        [%fp7                #f  14 fp]
+        [%fp8                #f  15 fp])
+      (machine-dependent
+        [%Cfparg1 %Cfpretval #f  0 fp] ; no FP registers are callee-save
+        [%Cfparg2            #f  1 fp]
+        [%Cfparg3            #f  2 fp]
+        [%Cfparg4            #f  3 fp]
+        [%Cfparg5            #f  4 fp]
+        [%Cfparg6            #f  5 fp]
+        [%Cfparg7            #f  6 fp]
+        [%Cfparg8            #f  7 fp]
+        [%sp                 #t  4 uptr]))]))
 
 ;;; SECTION 2: instructions
 (module (md-handle-jump  ; also sets primitive handlers

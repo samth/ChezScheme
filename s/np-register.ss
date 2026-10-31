@@ -49,7 +49,9 @@
                                  [rfpextra* '()])
                            (if (null? other*)
                                (cond
-                                 [(not (fx= (length rextra*) (constant asm-arg-reg-max)))
+                                 ; fewer extra registers than asm-arg-reg-max is allowed, which leaves
+                                 ; the thread context's layout the same when a machine reserves one
+                                 [(not (fx<= (constant asm-arg-reg-cnt) (length rextra*) (constant asm-arg-reg-max)))
                                   (syntax-error x (format "asm-arg-reg-max extra registers are not specified ~s" (syntax->datum rextra*)))]
                                  [(not (fx= (length rfpextra*) (constant asm-fpreg-max)))
                                   (syntax-error x (format "asm-fpreg-max extra registers are not specified ~s" (syntax->datum rfpextra*)))]
@@ -138,6 +140,14 @@
       [(real-register? '%ret) #'%ret]
       [else (with-syntax ([%mref (datum->syntax x '%mref)])
               #'(%mref ,%sfp 0))])))
+
+;; number of words reserved at the top of each nontail-call frame for the
+;; frame-pointer chain (see %fpchain in the machine's register definitions,
+;; which reserve it when the machine's .def sets `frame-chain-words` to 1)
+(define-syntax frame-chain-words
+  (lambda (x)
+    (syntax-case x ()
+      [(_) #'(constant frame-chain-words)])))
 
 (define-syntax reg-cons*
   (lambda (x)

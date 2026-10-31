@@ -18,6 +18,61 @@
 ;;;  Alignment:
 ;;;   stack must be 16-byte aligned, essentially always
 
+(meta-cond
+ [(fx= (constant frame-chain-words) 1)
+(define-registers
+  (reserved
+    [%tc  %r19                  #t 19 uptr]
+    [%sfp %r20                  #t 20 uptr]
+    [%ap  %r21                  #t 21 uptr]
+    [%trap %r22                 #t 22 uptr]
+    ; x29 is reserved for a frame-pointer chain that perf and other
+    ; frame-pointer unwinders can follow through Scheme frames; it holds
+    ; %sfp - 8, and the word there links to the caller's chain entry, with
+    ; the return address in the word after it, as in an AAPCS64 frame record
+    [%fpchain %r29              #t 29 uptr])
+  (allocable
+    [%ac0 %r23                  #t 23 uptr]
+    [%xp  %r24                  #t 24 uptr]
+    [%ts  %r8                   #f  8 uptr]
+    [%td  %r25                  #t 25 uptr]
+    [%cp  %r26                  #t 26 uptr]
+    [     %r0  %Carg1 %Cretval  #f  0 uptr]
+    [     %r1  %Carg2           #f  1 uptr]
+    [     %r2  %Carg3 %reify1   #f  2 uptr]
+    [     %r3  %Carg4 %reify2   #f  3 uptr]
+    [     %r4  %Carg5 %save1    #f  4 uptr]
+    [     %r5  %Carg6           #f  5 uptr]
+    [     %r6  %Carg7           #f  6 uptr]
+    [     %r7  %Carg8           #f  7 uptr]
+    [     %r9                   #f  9 uptr]
+    [     %r12                  #f 12 uptr]
+    [     %r13                  #f 13 uptr]
+    [     %r14                  #f 14 uptr]
+    [     %r15                  #f 15 uptr]
+    [     %lr                   #f 30 uptr] ; %lr is trashed by 'c' calls including calls to hand-coded routines like get-room
+    [%fp1           %v16        #f 16 fp]
+    [%fp2           %v17        #f 17 fp]
+    [%fp3           %v18        #f 18 fp]
+    [%fp4           %v19        #f 19 fp]
+    [%fp5           %v20        #f 20 fp]
+    [%fp6           %v21        #f 21 fp]
+  )
+  (machine-dependent
+    [%jmptmp %argtmp            #f 10 uptr]
+    [%argtmp2                   #f 11 uptr]
+    [%sp %real-zero             #t 31 uptr]
+    [%Cfparg1 %Cfpretval      %v0   #f  0 fp]
+    [%Cfparg2                 %v1   #f  1 fp]
+    [%Cfparg3                 %v2   #f  2 fp]
+    [%Cfparg4                 %v3   #f  3 fp]
+    [%Cfparg5                 %v4   #f  4 fp]
+    [%Cfparg6                 %v5   #f  5 fp]
+    [%Cfparg7                 %v6   #f  6 fp]
+    [%Cfparg8                 %v7   #f  7 fp]
+    ;; etc., but FP registers v8-v15 are preserved
+    ))]
+ [else
 (define-registers
   (reserved
     [%tc  %r19                  #t 19 uptr]
@@ -64,7 +119,7 @@
     [%Cfparg7                 %v6   #f  6 fp]
     [%Cfparg8                 %v7   #f  7 fp]
     ;; etc., but FP registers v8-v15 are preserved
-    ))
+    ))])
 
 ;;; SECTION 2: instructions
 (module (md-handle-jump ; also sets primitive handlers
@@ -3323,8 +3378,14 @@
             (define callee-save-regs+lr (cons* %lr
                                                ;; reserved:
                                                %tc %sfp %ap %trap
-                                               ;; allocable:
-                                               (get-allocable-callee-save-regs 'uptr)))
+                                               (meta-cond
+                                                 [(fx= (constant frame-chain-words) 1)
+                                                  (cons %fpchain
+                                                    ;; allocable:
+                                                    (get-allocable-callee-save-regs 'uptr))]
+                                                 [else
+                                                  ;; allocable:
+                                                  (get-allocable-callee-save-regs 'uptr)])))
             (define callee-save-fpregs  (get-allocable-callee-save-regs 'fp))
             (define isaved (length callee-save-regs+lr))
             (define fpsaved (length callee-save-fpregs))
