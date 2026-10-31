@@ -394,6 +394,11 @@ extern void S_sampler_gc_end(void);
 extern void S_sampler_foreign_init(void);
 extern void S_sampler_print_stack(void);
 extern void S_sampler_print_stack_at(uptr pc, uptr sfp);
+extern void S_jitdump_boot_done(void);
+extern void S_jitdump_code_created(ptr co);
+extern void S_jitdump_code_moved(ptr co);
+extern void S_jitdump_before_gc(void);
+extern void S_jitdump_after_gc(void);
 #ifdef DEFINE_MATHERR
 #include <math.h>
 extern INT matherr(struct exception *x);

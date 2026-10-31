@@ -1109,6 +1109,7 @@ ptr S_code(ptr tc, iptr type, iptr n) {
      even started modifying the code yet, since we always create
      and fill the code object within a critical section. */
     S_record_code_mod(tc, (uptr)TO_PTR(&CODEIT(p,0)), (uptr)n);
+    S_jitdump_code_created(p);
     return p;
 }
 

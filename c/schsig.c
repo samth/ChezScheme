@@ -19,6 +19,7 @@
 #include <errno.h>
 
 #include "sampler.inc"
+#include "jitdump.inc"
 
 /* locally defined functions */
 static void split(ptr k, ptr *s);
@@ -967,6 +968,7 @@ void S_schsig_deinit(void) {
 
 void S_schsig_init(void) {
     S_sampler_init();
+    S_jitdump_init();
 
     if (S_boot_time) {
         ptr p;
