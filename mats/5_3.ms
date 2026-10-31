@@ -5936,6 +5936,12 @@
   (eqv? (logbit0 (+ (most-positive-fixnum) 1) 0) 0)
   (eqv? (logbit0 (+ (most-positive-fixnum) 1) 5) 5)
   (eqv? (logbit0 (expt 2 100) 7) 7)
+  ;; the C implementation, which inlined `logbit0` reaches only for
+  ;; bignums and large bit indices, with a fixnum and bit indices
+  ;; at and beyond the width of a C `int`
+  (eqv? (#%$logbit0 31 (- (expt 2 50) 1)) (- (expt 2 50) 1 (expt 2 31)))
+  (eqv? (#%$logbit0 40 (- (expt 2 50) 1)) (- (expt 2 50) 1 (expt 2 40)))
+  (eqv? (#%$logbit0 40 -1) (- -1 (expt 2 40)))
 )
 
 (mat logbit1

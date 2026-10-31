@@ -1760,7 +1760,7 @@ static ptr big_logbitp(iptr n, ptr x, iptr xl, IBOOL xs) {
     xp = &BIGIT(x,xl); xb = 1;
     for (i = xl; ; i -= 1) {
       bigit t1 = *--xp, t2 = t1 - xb;
-      if (n < bigit_bits) return Sboolean(~t2 & (1 << n));
+      if (n < bigit_bits) return Sboolean(~t2 & ((bigit)1 << n));
       xb = t2 > t1;
       n -= bigit_bits;
     }
@@ -1774,7 +1774,7 @@ ptr S_logbit0(ptr k, ptr x) {
 
   if (Sfixnump(x)) {
     if (n < fixnum_bits - 1) {
-      return FIX(UNFIX(x) & ~(1 << n));
+      return FIX(UNFIX(x) & ~((uptr)1 << n));
     } else {
       iptr xl; IBOOL xs;
 
@@ -1812,7 +1812,7 @@ static ptr big_logbit0(ptr tc, ptr origx, iptr n, ptr x, iptr xl, IBOOL xs) {
         *--zp = *--xp;
         n -= bigit_bits;
       }
-      *--zp = *--xp & ~(1 << n);
+      *--zp = *--xp & ~((bigit)1 << n);
       for (i = xl - yl; i > 0; i -= 1) *--zp = *--xp;
       return copy_normalize(tc, zp,xl,0);
     }
@@ -1832,7 +1832,7 @@ static ptr big_logbit0(ptr tc, ptr origx, iptr n, ptr x, iptr xl, IBOOL xs) {
       *--zp = z2;
       n -= bigit_bits;
     }
-    z1 = x2 | (1 << n); z2 = z1 + k; k = z2 < z1;
+    z1 = x2 | ((bigit)1 << n); z2 = z1 + k; k = z2 < z1;
     *--zp = z2;
     for (; i > 0; i -= 1) {
       x1 = *--xp; x2 = x1 - xb; xb = x2 > x1;
@@ -1904,7 +1904,7 @@ static ptr big_logbit1(ptr tc, ptr origx, iptr n, ptr x, iptr xl, IBOOL xs) {
       *--zp = z2;
       n -= bigit_bits;
     }
-    z1 = x2 & ~(1 << n);
+    z1 = x2 & ~((bigit)1 << n);
     z2 = z1 + k; k = z2 < z1;
     *--zp = z2;
     for (i = xl - yl; i > 0; i -= 1) {
