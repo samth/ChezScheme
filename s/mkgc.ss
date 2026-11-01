@@ -1173,7 +1173,8 @@
                 (RECORD_REMOTE t_si)])))
          (set! (reloc-table-code t) _)
          (set! (code-reloc _) t)])
-      (S_record_code_mod (-> _tgc_ tc) (cast uptr (TO_PTR (& (code-data _ 0)))) (cast uptr (code-length _)))]
+      (S_record_code_mod (-> _tgc_ tc) (cast uptr (TO_PTR (& (code-data _ 0)))) (cast uptr (code-length _)))
+      (S_jitdump_code_moved _)]
      [else])]))
 
 (define-trace-macro (check-bignum var)

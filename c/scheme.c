@@ -1248,6 +1248,7 @@ extern void Sbuild_heap(const char *execpath, void (*custom_init)(void)) {
     }
 
     Scompact_heap();
+    S_jitdump_boot_done();
 
     S_vfasl_boot_mode = 0;
 
