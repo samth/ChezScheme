@@ -2535,29 +2535,34 @@
   (cptypes-equivalent-expansion?
     '(lambda (b) (vector-set! b 3 'x) (vector-set! b 1 'y))
     '(lambda (b) (vector-set! b 3 'x) (#3%vector-set! b 1 'y)))
+  ;; the negative cases mean something only when accesses are checked
   ;; a larger index is still checked
-  (not (cptypes-equivalent-expansion?
+  (parameterize ([optimize-level 2]) (not (cptypes-equivalent-expansion?
          '(lambda (b) (let ([x (flvector-ref b 1)]) (fl+ x (flvector-ref b 2))))
-         '(lambda (b) (let ([x (flvector-ref b 1)]) (fl+ x (#3%flvector-ref b 2))))))
+         '(lambda (b) (let ([x (flvector-ref b 1)]) (fl+ x (#3%flvector-ref b 2)))))))
   ;; a vector-ref does not show that the vector is mutable
-  (not (cptypes-equivalent-expansion?
+  (parameterize ([optimize-level 2]) (not (cptypes-equivalent-expansion?
          '(lambda (b) (vector-ref b 3) (vector-set! b 1 'y))
-         '(lambda (b) (vector-ref b 3) (#3%vector-set! b 1 'y))))
+         '(lambda (b) (vector-ref b 3) (#3%vector-set! b 1 'y)))))
   ;; a fact from one branch does not survive the join
-  (not (cptypes-equivalent-expansion?
+  (parameterize ([optimize-level 2]) (not (cptypes-equivalent-expansion?
          '(lambda (b c) (when c (flvector-ref b 5)) (flvector-ref b 3))
-         '(lambda (b c) (when c (flvector-ref b 5)) (#3%flvector-ref b 3))))
+         '(lambda (b c) (when c (flvector-ref b 5)) (#3%flvector-ref b 3)))))
   ;; but the smaller bound from both branches does
   (cptypes-equivalent-expansion?
     '(lambda (b c) (if c (flvector-ref b 5) (flvector-ref b 3)) (flvector-ref b 3))
     '(lambda (b c) (if c (flvector-ref b 5) (flvector-ref b 3)) (#3%flvector-ref b 3)))
   ;; assigned variables get no facts
-  (not (cptypes-equivalent-expansion?
+  (parameterize ([optimize-level 2]) (not (cptypes-equivalent-expansion?
          '(lambda (b) (set! b (flvector 1.0)) (flvector-ref b 3) (flvector-ref b 2))
-         '(lambda (b) (set! b (flvector 1.0)) (flvector-ref b 3) (#3%flvector-ref b 2))))
-  ;; the checks that remain still raise
-  (error? (let ([f (lambda (b) (flvector-ref b 3) (flvector-ref b 4))]) (f (flvector 1.0 2.0 3.0 4.0))))
-  (error? (let ([f (lambda (b) (vector-ref b 3) (vector-set! b 1 'y))]) (f (vector->immutable-vector (vector 1 2 3 4)))))
+         '(lambda (b) (set! b (flvector 1.0)) (flvector-ref b 3) (#3%flvector-ref b 2)))))
+  ;; the checks that remain still raise (in safe code)
+  (or (= (optimize-level) 3)
+      (guard (c [#t #t])
+        (let ([f (lambda (b) (flvector-ref b 3) (flvector-ref b 4))]) (f (flvector 1.0 2.0 3.0 4.0)) #f)))
+  (or (= (optimize-level) 3)
+      (guard (c [#t #t])
+        (let ([f (lambda (b) (vector-ref b 3) (vector-set! b 1 'y))]) (f (vector->immutable-vector (vector 1 2 3 4))) #f)))
   (equal? (let ([f (lambda (b) (flvector-ref b 3) (flvector-set! b 1 9.0) (flvector-ref b 1))]) (f (flvector 1.0 2.0 3.0 4.0)))
           9.0)
 )
