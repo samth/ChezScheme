@@ -2502,10 +2502,84 @@
 (define $byte-copy!
   (let ([byte-copy! (foreign-procedure __atomic "(cs)byte-copy"
                       (scheme-object fixnum scheme-object fixnum fixnum)
-                      void)])
+                      void)]
+        [byte-copy-unblocked! (foreign-procedure "(cs)byte-copy-unblocked" ; deactivates, so a collection can run during the call
+                                (scheme-object fixnum scheme-object fixnum fixnum)
+                                void)])
     (lambda (src srcoff dst dstoff cnt)
-      (byte-copy! src srcoff dst dstoff cnt)
+      (cond
+        [(fx< cnt (constant large-copy-bytes))
+         (byte-copy! src srcoff dst dstoff cnt)]
+        [else
+         ;; a large copy runs with the thread deactivated, so that it does
+         ;; not hold up a collection
+         (critical-section (byte-copy-unblocked! src srcoff dst dstoff cnt))])
       ($use-trap-fuel cnt (+ (constant fuel-word-count-shift) (constant log2-ptr-bytes))))))
+
+;; Large fills, called from the inline `make-bytevector` and `make-vector`:
+;; fill in chunks, using trap fuel for each so that the event check between
+;; chunks can let a collection run.
+(define $make-bytevector/large
+  (let ([byte-fill! (foreign-procedure __atomic "(cs)byte-fill"
+                      (scheme-object fixnum fixnum fixnum)
+                      void)])
+    (lambda (n fill)
+      (let ([bv (#3%make-bytevector n)]
+            [fill (fxlogand fill #xff)])
+        (let loop ([i 0])
+          (if (fx< i n)
+              (let ([m (fxmin (constant large-fill-bytes) (fx- n i))])
+                (byte-fill! bv (fx+ i (constant bytevector-data-disp)) m fill)
+                ($use-trap-fuel m (+ (constant fuel-word-count-shift) (constant log2-ptr-bytes)))
+                (loop (fx+ i m)))
+              bv))))))
+
+(define $make-vector/large
+  (let ([word-fill! (foreign-procedure __atomic "(cs)word-fill"
+                      (scheme-object fixnum fixnum scheme-object)
+                      void)]
+        [bytevector->vector! (foreign-procedure __atomic "(cs)bytevector->vector"
+                               (scheme-object)
+                               void)]
+        [lock-in-new-space! (foreign-procedure __atomic __alloc "(cs)lock-in-new-space"
+                              (scheme-object)
+                              boolean)])
+    (define (small n fill)
+      (let ([v ($make-vector/no-interrupt-trap n fill)])
+        ($use-trap-fuel n (constant fuel-word-count-shift))
+        v))
+    (meta-assert (= (constant bytevector-data-disp) (constant vector-data-disp)))
+    (meta-assert (= (constant header-size-bytevector) (constant header-size-vector)))
+    (lambda (n fill)
+      (cond
+        [($immediate? fill)
+         ;; Build the vector as a bytevector of the same size, which a
+         ;; collection does not trace while the fill is incomplete, then
+         ;; give it a vector header. Locking it while it is still in the
+         ;; allocation space keeps it there, where a collection treats a
+         ;; locked object of any type correctly (it sweeps such objects at
+         ;; every collection); if a collection moved it first, it would be
+         ;; in a data space, so try again. An immediate fill value never
+         ;; needs to be updated by a collection.
+         (let ([bv (let retry ([tries 0])
+                     (let ([bv (#3%make-bytevector (fxsll n (constant log2-ptr-bytes)))])
+                       (cond
+                         [(lock-in-new-space! bv) bv]
+                         [(fx< tries 3) (retry (fx+ tries 1))]
+                         [else #f])))])
+          (cond
+           [(not bv) (small n fill)]
+           [else
+           (let loop ([i 0])
+             (when (fx< i n)
+               (let ([m (fxmin (fxsrl (constant large-fill-bytes) (constant log2-ptr-bytes)) (fx- n i))])
+                 (word-fill! bv (fx+ (fxsll i (constant log2-ptr-bytes)) (constant bytevector-data-disp)) m fill)
+                 ($use-trap-fuel m (constant fuel-word-count-shift))
+                 (loop (fx+ i m)))))
+           (bytevector->vector! bv)
+           (unlock-object bv)
+           bv]))]
+        [else (small n fill)]))))
 
 (define $ptr-copy!
   (let ([ptr-copy! (foreign-procedure __atomic "(cs)ptr-copy"

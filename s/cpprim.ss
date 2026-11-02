@@ -6996,6 +6996,15 @@
                                   ,t))))))
                 (bind #t (e-length)
                   (let ([t-bytes (make-tmp 'tbytes 'uptr)] [t-vec (make-tmp 'tvec)])
+                    (define (maybe-large e)
+                      ; a large fill runs out of line, in chunks with event checks
+                      ; between them, so it does not hold up a collection
+                      (if maybe-e-fill
+                          `(if ,(%inline u< ,e-length (immediate ,(fix (constant large-fill-bytes))))
+                               ,e
+                               ,(%primcall #f #f $make-bytevector/large ,e-length ,maybe-e-fill))
+                          e))
+                    (maybe-large
                     `(if ,(%inline eq? ,e-length (immediate 0))
                          (quote ,(bytevector))
                          (let ([,t-bytes ,(build-unfix e-length)])
@@ -7015,7 +7024,7 @@
                                     (build-bytevector-fill t-vec t-bytes maybe-e-fill)
                                     `(seq
                                       ,(build-use-trap-fuel t-bytes)
-                                      ,t-vec)))))))))))
+                                      ,t-vec))))))))))))
         (let ()
           (define valid-length?
             (lambda (e-length)
@@ -7765,6 +7774,16 @@
                                   t))))))
                 (bind #t (e-length) ; fixnum length doubles as byte count
                   (let ([t-vec (make-tmp 'tvec)])
+                    (define (maybe-large e)
+                      ; a large fill runs out of line, in chunks with event checks
+                      ; between them, so it does not hold up a collection
+                      (if (and e-fill interrupt-trap? (fx= type (constant type-vector)))
+                          `(if ,(%inline u< ,e-length (immediate ,(fix (fxsrl (constant large-fill-bytes)
+                                                                               (constant log2-ptr-bytes)))))
+                               ,e
+                               ,(%primcall #f #f $make-vector/large ,e-length ,e-fill))
+                          e))
+                    (maybe-large
                     `(if ,(%inline eq? ,e-length (immediate 0))
                          (quote ,(if (fx= type (constant type-vector)) (vector) (immutable-vector)))
                          (let ([,t-vec (alloc ,(make-info-alloc (constant type-typed-object) #f #f)
@@ -7781,7 +7800,7 @@
                                   (constant vector-length-offset)))
                              ,(if e-fill
                                   (build-vector-fill t-vec e-length e-fill interrupt-trap?)
-                                  t-vec)))))))]))
+                                  t-vec))))))))]))
         (define default-fill `(immediate ,(fix 0)))
         (define-inline 3 make-vector
           [(e-length) (do-make-vector (constant type-vector) e-length default-fill)]

@@ -2123,6 +2123,11 @@
 (define-constant default-max-nonstatic-generation 4)
 
 (define-constant fuel-word-count-shift 2)
+;; fills and copies at least this large run in chunks with event checks
+;; between them, or with the thread deactivated, so that they do not hold
+;; up a collection requested by another thread
+(define-constant large-fill-bytes (* 256 1024))
+(define-constant large-copy-bytes (* 1024 1024))
 
 (constant-case address-bits
   [(32)

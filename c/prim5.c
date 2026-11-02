@@ -116,6 +116,11 @@ static void s_thread_preserve_ownership(ptr tc);
 #endif
 static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
+static void s_byte_copy_unblocked(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
+static void s_byte_fill(ptr x, iptr off, iptr cnt, iptr b);
+static void s_word_fill(ptr x, iptr off, iptr cnt, ptr w);
+static void s_bytevector_to_vector(ptr x);
+static IBOOL s_lock_in_new_space(ptr x);
 static ptr s_tlv(ptr x);
 static void s_stlv(ptr x, ptr v);
 static void s_test_schlib(void);
@@ -1944,6 +1949,11 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)putenv", (void *)s_putenv);
     Sforeign_symbol("(cs)byte-copy", (void *)s_byte_copy);
     Sforeign_symbol("(cs)ptr-copy", (void *)s_ptr_copy);
+    Sforeign_symbol("(cs)byte-copy-unblocked", (void *)s_byte_copy_unblocked);
+    Sforeign_symbol("(cs)byte-fill", (void *)s_byte_fill);
+    Sforeign_symbol("(cs)word-fill", (void *)s_word_fill);
+    Sforeign_symbol("(cs)bytevector->vector", (void *)s_bytevector_to_vector);
+    Sforeign_symbol("(cs)lock-in-new-space", (void *)s_lock_in_new_space);
     Sforeign_symbol("(cs)boot-error", (void *)S_boot_error);
     Sforeign_symbol("(cs)s_tlv", (void *)s_tlv);
     Sforeign_symbol("(cs)s_stlv", (void *)s_stlv);
@@ -2057,6 +2067,53 @@ static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
      memcpy(dstaddr, srcaddr, cnt);
   else
      memmove(dstaddr, srcaddr, cnt);
+}
+
+/* for a large copy: called in a critical section, and unless the caller
+   already had interrupts disabled, runs the copy with the thread
+   deactivated, so that a collection can run meanwhile; locking keeps
+   both objects in place */
+static void s_byte_copy_unblocked(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
+#ifdef PTHREADS
+  ptr tc = get_thread_context();
+  if (DISABLECOUNT(tc) == FIX(1)) {
+    Slock_object(src);
+    if (dst != src) Slock_object(dst);
+    deactivate_thread(tc);
+    memmove(TO_VOIDP((iptr)dst + dstoff), TO_VOIDP((iptr)src + srcoff), cnt);
+    reactivate_thread(tc);
+    if (dst != src) Sunlock_object(dst);
+    Sunlock_object(src);
+    return;
+  }
+#endif
+  memmove(TO_VOIDP((iptr)dst + dstoff), TO_VOIDP((iptr)src + srcoff), cnt);
+}
+
+static void s_byte_fill(ptr x, iptr off, iptr cnt, iptr b) {
+  memset(TO_VOIDP((iptr)x + off), (int)b, cnt);
+}
+
+static void s_word_fill(ptr x, iptr off, iptr cnt, ptr w) {
+  ptr *p = TO_VOIDP((iptr)x + off);
+  while (cnt-- > 0) *p++ = w;
+}
+
+/* turns a bytevector whose words all hold immediate values into a
+   vector of those values */
+static void s_bytevector_to_vector(ptr x) {
+  iptr n = Sbytevector_length(x) >> log2_ptr_bytes;
+  VECTTYPE(x) = (n << vector_length_offset) | type_vector;
+}
+
+/* locks a newly allocated object if it is still in the allocation space,
+   where a collection keeps it in place and treats it as any type; it is
+   not there if a collection has already moved it */
+static IBOOL s_lock_in_new_space(ptr x) {
+  seginfo *si = MaybeSegInfo(ptr_get_segment(x));
+  if (si == NULL || si->space != space_new || si->generation != 0) return 0;
+  Slock_object(x);
+  return 1;
 }
 
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {

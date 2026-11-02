@@ -2350,6 +2350,8 @@
   ($make-tlc [flags single-valued alloc])
   ($make-uninitialized-string [sig [(length) -> (string)]] [flags alloc])
   ($make-vector/no-interrupt-trap [flags single-valued])
+  ($make-vector/large [flags single-valued alloc])
+  ($make-bytevector/large [flags single-valued alloc])
   ($make-vtable [flags single-valued])
   ($make-wrapper-procedure [flags single-valued])
   ($map [flags single-valued])
