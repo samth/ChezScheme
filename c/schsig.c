@@ -589,6 +589,7 @@ void S_fire_collector(void) {
     if (!Sboolean_value(S_symbol_value(crp_id))) {
 /* printf("firing collector nthreads = %d\n", list_length(S_threads)); fflush(stdout); */
       S_set_symbol_value(crp_id, Strue);
+      jitdump_collect_requested();
       for (ls = S_threads; ls != Snil; ls = Scdr(ls))
         SOMETHINGPENDING(THREADTC(Scar(ls))) = Strue;
     }
