@@ -5046,7 +5046,7 @@
           [(e)
            (constant-case fpround-instruction
              [(#t) (build-fp-op-1 %fpround e)]
-             [else (build-fl-call (lookup-c-entry flround) e)])]) ; fpround-instruction: SSE4.1 roundsd on x86_64, frint* on arm64
+             [else (build-fl-call (lookup-c-entry flround) e)])])
         (define-inline 3 flfloor
           [(e)
            (constant-case fpround-instruction
