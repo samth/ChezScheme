@@ -3520,7 +3520,9 @@
         (lambda (name)
           (not (memq name '(nuate nonprocedure-code error-invoke invoke
                                   $wrapper-apply wrapper-apply arity-wrapper-apply
-                                  popcount-slow cpu-features flfma-slow)))))
+                                  popcount-slow cpu-features
+                                  fpround-slow fpfloor-slow fpceiling-slow fptruncate-slow
+                                  flfma-slow)))))
       (define-inline 2 $hand-coded
         [(name)
          (nanopass-case (L7 Expr) name
