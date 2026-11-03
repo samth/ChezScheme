@@ -4587,32 +4587,34 @@
      (define (measure-guardian-chain-time n get-key ordered?)
        ;; Create a chain of guardians `n` long and
        ;; report how long a collection takes averaged
-       ;; over `iters` tries
+       ;; over `iters` tries; automatic collections are off, so that the
+       ;; time is for that one collection
        (define iters 10)
-       (let loop ([g #f] [accum 0] [j iters] [iters-mult 1])
-         (if (zero? j)
-             (if (zero? accum)
-                 ;; more iterations to get non-0 CPU time:
-                 (loop g accum iters (add1 iters-mult))
-                 (begin
-                   (keep-live g)
-                   (/ accum (* iters iters-mult))))
-             (let ([g (let loop ([i n])
-                        (let ([g (make-guardian ordered?)])
-                          (if (zero? i)
-                              g
-                              (let ([next-g (loop (sub1 i))])
-                                (g (get-key next-g) next-g)
-                                g))))])
-               (let ([start (current-time 'time-process)])
-                 (collect (collect-maximum-generation))
-                 (let ([delta (time-difference (current-time 'time-process) start)])
-                   (loop g
-                         (+ accum
-                            (* (time-second delta) 1e9)
-                            (time-nanosecond delta))
-                         (sub1 j)
-                         iters-mult)))))))
+       (parameterize ([collect-request-handler void])
+         (let loop ([g #f] [accum 0] [j iters] [iters-mult 1])
+           (if (zero? j)
+               (if (zero? accum)
+                   ;; more iterations to get non-0 CPU time:
+                   (loop g accum iters (add1 iters-mult))
+                   (begin
+                     (keep-live g)
+                     (/ accum (* iters iters-mult))))
+               (let ([g (let loop ([i n])
+                          (let ([g (make-guardian ordered?)])
+                            (if (zero? i)
+                                g
+                                (let ([next-g (loop (sub1 i))])
+                                  (g (get-key next-g) next-g)
+                                  g))))])
+                 (let ([start (current-time 'time-process)])
+                   (collect (collect-maximum-generation))
+                   (let ([delta (time-difference (current-time 'time-process) start)])
+                     (loop g
+                           (+ accum
+                              (* (time-second delta) 1e9)
+                              (time-nanosecond delta))
+                           (sub1 j)
+                           iters-mult))))))))
 
      ;; Make sure guardian chains imply GC times that
      ;; look linear, as opposed to quadratic

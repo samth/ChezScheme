@@ -586,8 +586,13 @@ void S_fire_collector(void) {
     if (!Sboolean_value(S_symbol_value(crp_id))) {
 /* printf("firing collector nthreads = %d\n", list_length(S_threads)); fflush(stdout); */
       S_set_symbol_value(crp_id, Strue);
-      for (ls = S_threads; ls != Snil; ls = Scdr(ls))
-        SOMETHINGPENDING(THREADTC(Scar(ls))) = Strue;
+      /* each thread checks at its next trap check, instead of when its
+         current trap fuel runs out */
+      for (ls = S_threads; ls != Snil; ls = Scdr(ls)) {
+        ptr tc = (ptr)THREADTC(Scar(ls));
+        SOMETHINGPENDING(tc) = Strue;
+        TRAP(tc) = (ptr)1;
+      }
     }
     tc_mutex_release();
   }

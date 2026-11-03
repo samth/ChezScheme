@@ -1562,8 +1562,15 @@
   (let ([done? #f]
         [gc-ids (list (get-thread-id))]
         [gc-count 0]
-        [m #%$tc-mutex] ; using tc-mutex means main thread is not deactivated
+        [m (make-mutex)]
         [c (make-condition)])
+    ;; the main thread takes `m` without blocking, so it is never
+    ;; deactivated and stays the thread that handles collect requests
+    (define (with-m/spin thunk)
+      (let retry ()
+        (if (mutex-acquire m #f)
+            (begin (thunk) (mutex-release m))
+            (retry))))
     (parameterize ([collect-request-handler
                     (let ([orig (collect-request-handler)])
                       (lambda ()
@@ -1583,12 +1590,12 @@
           (loop (sub1 i))))
       (let loop ()
         (unless (> gc-count 1000)
-          (with-mutex m (condition-broadcast c))
+          (with-m/spin (lambda () (condition-broadcast c)))
           (collect-rendezvous)
           (loop)))
-      (with-mutex m
-        (set! done? #t)
-        (condition-broadcast c))
+      (with-m/spin (lambda ()
+                     (set! done? #t)
+                     (condition-broadcast c)))
       (equal? gc-ids (list (get-thread-id)))))
   )
 
@@ -1691,6 +1698,40 @@
 
            (loop (sub1 j))))))
    (void))
+)
+
+(mat foreign-calls-allow-collection
+  ;; a collect request reaches a thread that is making a series of long
+  ;; foreign calls at its next event check, so a rendezvous waits for at
+  ;; most one of those calls
+  (let ([sleep-ms (foreign-procedure "sleep_ms" (int) void)]
+        [running? #f]
+        [stop? #f]
+        [m (make-mutex)]
+        [c (make-condition)]
+        [done? #f])
+    ;; time from the request until the collect-request handler runs
+    (define (wait-ms)
+      (let* ([start (real-time)] [handled start])
+        (parameterize ([collect-request-handler
+                        (lambda () (set! handled (real-time)) (collect))])
+          (collect-rendezvous))
+        (- handled start)))
+    (fork-thread
+      (lambda ()
+        (let loop ()
+          (sleep-ms 5)
+          (set! running? #t)
+          (unless stop? (loop)))
+        (with-mutex m
+          (set! done? #t)
+          (condition-broadcast c))))
+    (let loop () (unless running? (loop)))
+    (let ([ok? (andmap (lambda (i) (< (wait-ms) 1000)) '(1 2 3))])
+      (set! stop? #t)
+      (with-mutex m
+        (let loop () (unless done? (condition-wait c m) (loop))))
+      ok?))
 )
 
 (mat wait-for-threads

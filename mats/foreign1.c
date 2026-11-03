@@ -189,3 +189,11 @@ EXPORT int call_with_preserved_xmm(callback_t cb, const __m128i *in, __m128i *ou
 }
 
 #endif
+
+#ifdef _WIN32
+extern __declspec(dllimport) void __stdcall Sleep(unsigned long ms);
+EXPORT void sleep_ms(int ms) { Sleep(ms); }
+#else
+#include <unistd.h>
+EXPORT void sleep_ms(int ms) { usleep(ms * 1000); }
+#endif
