@@ -1707,3 +1707,46 @@
 )
 
 )
+
+(when-threaded
+  (mat large-copy-allows-collection
+    ;; a collection requested while another thread copies a large
+    ;; bytevector can run before the copy finishes, which shows up as a
+    ;; partly copied destination when the collect-request handler runs;
+    ;; that needs `__collect_safe`, which W^X builds do not support
+    (or (not ((foreign-procedure "(cs)collect_safe_supported" () boolean)))
+     (let* ([n (* 64 1024 1024)]
+            [src (make-bytevector n 1)]
+            [dst (make-bytevector n 0)])
+       (define (samples)
+         (map (lambda (k) (bytevector-u8-ref dst (quotient (* k (- n 1)) 8)))
+              '(0 1 2 3 4 5 6 7 8)))
+       (define (partly-copied?)
+         (let ([s (samples)])
+           (and (memv 0 s) (memv 1 s) #t)))
+       (define (collect-during-copy?)
+         (let ([m (make-mutex)] [c (make-condition)]
+               [done? #f] [during? #f])
+           (bytevector-fill! dst 0)
+           (fork-thread
+            (lambda ()
+              (bytevector-copy! src 0 dst 0 n)
+              (with-mutex m (set! done? #t) (condition-broadcast c))))
+           ;; wait until the copy is under way
+           (let loop ()
+             (unless (or (memv 1 (samples)) (with-mutex m done?))
+               (loop)))
+           (parameterize ([collect-request-handler
+                           (lambda ()
+                             (set! during? (partly-copied?))
+                             (collect))])
+             (collect-rendezvous))
+           (with-mutex m
+             (let loop () (unless done? (condition-wait c m) (loop))))
+           during?))
+       ;; timing-dependent, so allow a few tries
+       (and (let loop ([i 0])
+              (or (collect-during-copy?)
+                  (and (< i 5) (loop (+ i 1)))))
+            (equal? src dst)))))
+  )

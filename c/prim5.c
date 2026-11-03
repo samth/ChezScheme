@@ -116,6 +116,7 @@ static void s_thread_preserve_ownership(ptr tc);
 #endif
 static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt);
+static void s_byte_move(uptr src, uptr dst, uptr cnt);
 static ptr s_tlv(ptr x);
 static void s_stlv(ptr x, ptr v);
 static void s_test_schlib(void);
@@ -1944,6 +1945,7 @@ void S_prim5_init(void) {
     Sforeign_symbol("(cs)putenv", (void *)s_putenv);
     Sforeign_symbol("(cs)byte-copy", (void *)s_byte_copy);
     Sforeign_symbol("(cs)ptr-copy", (void *)s_ptr_copy);
+    Sforeign_symbol("(cs)byte-move", (void *)s_byte_move);
     Sforeign_symbol("(cs)boot-error", (void *)S_boot_error);
     Sforeign_symbol("(cs)s_tlv", (void *)s_tlv);
     Sforeign_symbol("(cs)s_stlv", (void *)s_stlv);
@@ -2057,6 +2059,10 @@ static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
      memcpy(dstaddr, srcaddr, cnt);
   else
      memmove(dstaddr, srcaddr, cnt);
+}
+
+static void s_byte_move(uptr src, uptr dst, uptr cnt) {
+  memmove(TO_VOIDP(dst), TO_VOIDP(src), cnt);
 }
 
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {

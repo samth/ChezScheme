@@ -2502,9 +2502,22 @@
 (define $byte-copy!
   (let ([byte-copy! (foreign-procedure __atomic "(cs)byte-copy"
                       (scheme-object fixnum scheme-object fixnum fixnum)
+                      void)]
+        [byte-move! (foreign-procedure __collect_safe "(cs)byte-move"
+                      (uptr uptr uptr)
                       void)])
     (lambda (src srcoff dst dstoff cnt)
-      (byte-copy! src srcoff dst dstoff cnt)
+      (if (and (fx>= cnt (* 1024 1024))
+               (fx= ($tc-field 'disable-count ($tc)) 0))
+          ;; a large copy lets other threads collect while it runs,
+          ;; with both objects locked in place
+          (begin
+            (lock-object src)
+            (lock-object dst)
+            (byte-move! ($object-address src srcoff) ($object-address dst dstoff) cnt)
+            (unlock-object dst)
+            (unlock-object src))
+          (byte-copy! src srcoff dst dstoff cnt))
       ($use-trap-fuel cnt (+ (constant fuel-word-count-shift) (constant log2-ptr-bytes))))))
 
 (define $ptr-copy!
