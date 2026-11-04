@@ -665,6 +665,23 @@
         `(set! ,(make-live-info) ,urax (asm ,null-info ,asm-kill))
         `(set! ,(make-live-info) ,x (asm ,info ,(asm-fpfma-call (eq? op 'fpfma/patch)) ,a ,b ,c ,urax))))])
 
+  ;; In the style of `fpround`: VFMADD213SD directly when the configured
+  ;; x86-64 level includes FMA3, otherwise a call to `fpfma-slow` with the
+  ;; operands in xmm0, xmm1, and xmm2 (as for C's `fma`), which the linker
+  ;; replaces with VFMADD213SD xmm0, xmm1, xmm2 when FMA3 is available
+  (define-instruction value (fpfma/link)
+    [(op (x fpur) (a fpur) (b fpur) (c fpur))
+     (constant-case x86-64-level
+       [(3 4)
+        (seq
+         `(move-related ,x ,c)
+         `(set! ,(make-live-info) ,x (asm ,info ,asm-fpfma ,a ,b ,c)))]
+       [else
+        (let ([urax (make-precolored-unspillable 'urax %rax)]) ; rax is assumed by linker's x86_64_set_jump
+          (seq
+           `(set! ,(make-live-info) ,urax (asm ,null-info ,asm-kill))
+           `(set! ,(make-live-info) ,x (asm ,info ,asm-fpfma-link ,a ,b ,c ,urax))))])])
+
   (define-instruction effect (fpfma-slow)
     [(op) `(asm ,info ,asm-fpfma-slow)])
 
@@ -935,7 +952,7 @@
                      asm-lea1 asm-lea2 asm-indirect-call asm-condition-code
                      asm-fl-cvt asm-store-single asm-load-single asm-fpt asm-fptrunc asm-div asm-popcount
                      asm-exchange asm-pause asm-debug asm-locked-incr asm-locked-decr asm-locked-cmpxchg
-                     asm-fpsqrt asm-fpfma asm-fpfma-call asm-fpfma-slow asm-fpround asm-fpop-2 asm-fpmove asm-fpmove128 asm-fpcast asm-fpsingle
+                     asm-fpsqrt asm-fpfma asm-fpfma-call asm-fpfma-link asm-fpfma-slow asm-fpround asm-fpop-2 asm-fpmove asm-fpmove128 asm-fpcast asm-fpsingle
                      asm-c-simple-call
                      asm-save-flrv asm-restore-flrv asm-return asm-c-return asm-size
                      asm-enter asm-foreign-call asm-foreign-callable
@@ -1988,6 +2005,19 @@
                 (emit-fpmove b x2
                   (emit-fpmove c x0
                     (asm-helper-call (emit-fpmove x0 dest code*) target jmp-reg))))))))))
+
+  ;; Link-editable variant for `fpfma/link`. The relocation's item offset
+  ;; is one more than usual, which tells the linker to use VFMADD213SD and
+  ;; `fpfma-slow` instead of VFMADD231SD and `flfma-slow`.
+  (define asm-fpfma-link
+    (let ([target `(x86_64-fma ,(fx+ (constant code-data-disp) 1) (library ,(lookup-libspec fpfma-slow)))])
+      (lambda (code* dest a b c jmp-reg)
+        (Trivit (dest a b c)
+          (let ([x0 (cons 'reg %Cfparg1)] [x1 (cons 'reg %Cfparg2)] [x2 (cons 'reg %Cfparg3)])
+            (emit-fpmove a x0
+              (emit-fpmove b x1
+                (emit-fpmove c x2
+                  (asm-helper-call (emit-fpmove x0 dest code*) target jmp-reg)))))))))
 
   ;; Body of `flfma-slow`: calls the C library's `fma` on xmm1 * xmm2 + xmm0,
   ;; leaving the result in xmm0 and preserving all other registers

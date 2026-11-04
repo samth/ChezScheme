@@ -139,6 +139,7 @@
 (define-hand-coded-library-entry fpceiling-slow)  ; before flceiling use
 (define-hand-coded-library-entry fptruncate-slow) ; before fltruncate use
 (define-hand-coded-library-entry flfma-slow)    ; before flfma use
+(define-hand-coded-library-entry fpfma-slow)    ; before flfma use
 
 (define $instantiate-code-object ($hand-coded '$instantiate-code-object))
 

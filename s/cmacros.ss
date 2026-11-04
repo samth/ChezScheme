@@ -3122,6 +3122,7 @@
      (fpceiling-slow #f 0 #f #t)
      (fptruncate-slow #f 0 #f #t)
      (flfma-slow #f 0 #f #t)
+     (fpfma-slow #f 0 #f #t)
   ))
 
 (let ()

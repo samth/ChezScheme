@@ -760,6 +760,7 @@
   (declare-primitive fpfma value #t) ; not pb, x86, or arm32
   (declare-primitive fpfma/call value #t) ; x86_64 only: call to `flfma-slow`
   (declare-primitive fpfma/patch value #t) ; x86_64 only: like fpfma/call, but the linker can patch in FMA3
+  (declare-primitive fpfma/link value #t) ; x86_64 only: like fpround, VFMADD213SD directly or via the linker
   (declare-primitive fpfma-slow effect #f) ; x86_64 only: body of `flfma-slow`
   (declare-primitive fpsqrt value #t) ; not implemented for some ppc32 (so we don't use it)
   (declare-primitive fpround value #t) ; x86_64 and arm64 only (so we don't use it elsewhere)

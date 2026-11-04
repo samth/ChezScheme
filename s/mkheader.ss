@@ -1489,6 +1489,8 @@
              (libspec-index (lookup-libspec fptruncate-slow)))
         (def "library_flfma_slow"
              (libspec-index (lookup-libspec flfma-slow)))
+        (def "library_fpfma_slow"
+             (libspec-index (lookup-libspec fpfma-slow)))
 
       )))
 )

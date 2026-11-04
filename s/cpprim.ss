@@ -3522,7 +3522,7 @@
                                   $wrapper-apply wrapper-apply arity-wrapper-apply
                                   popcount-slow cpu-features
                                   fpround-slow fpfloor-slow fpceiling-slow fptruncate-slow
-                                  flfma-slow)))))
+                                  flfma-slow fpfma-slow)))))
       (define-inline 2 $hand-coded
         [(name)
          (nanopass-case (L7 Expr) name
@@ -5000,6 +5000,9 @@
              ;;   helper-check: test `fma-supported` at each use, else call `flfma-slow`
              ;;   helper: always call `flfma-slow` (no patching)
              ;;   nocheck: always VFMADD231SD; ccall: always C via the FFI path
+             ;;   link: like flround in cisco/ChezScheme#1092: the instruction when the
+             ;;     configured x86-64 level is 3 or more, otherwise a call to `fpfma-slow`
+             ;;     that the linker replaces with VFMADD213SD
              ;;   unswitch: like check, but cpcse splits loops that use flfma on `$fma-supported?`
              (let ([mode (or mode (let ([m (getenv "CHEZ_FMA_MODE")]) (if m (string->symbol m) 'patch)))]
                    [native (lambda (e1 e2 e3)
@@ -5020,6 +5023,7 @@
                  [(nocheck) (bind #f fp (e1 e2 e3) (native e1 e2 e3))]
                  [(ccall) (build-fl-call (lookup-c-entry flfma) e1 e2 e3)]
                  [(helper) (bind #f fp (e1 e2 e3) (helper %fpfma/call e1 e2 e3))]
+                 [(link) (bind #f fp (e1 e2 e3) (helper %fpfma/link e1 e2 e3))]
                  [else (bind #f fp (e1 e2 e3) (helper %fpfma/patch e1 e2 e3))]))]
             [else (build-fl-call (lookup-c-entry flfma) e1 e2 e3)])]))
       (define build-fma-supported?
