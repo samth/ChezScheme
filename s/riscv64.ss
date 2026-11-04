@@ -839,14 +839,15 @@
     (lambda (op opcode funct3 mode code*)
       (emit-code (op code*)
         [28 #b000]
+        ;; predecessor set, as bits I O R W
         [24 (case mode
               [(store-store) #b0001] ; W
-              [(acquire) #b0001] ; R
+              [(acquire) #b0010] ; R
               [(release) #b0011] ; RW
               [else ($oops 'assembler-internal "unrecognized fence mode")])]
+        ;; successor set, as bits I O R W
         [20 (case mode
-              [(store-store acquire) #b0011] ; RW
-              [(release) #b0010] ; R
+              [(store-store acquire release) #b0011] ; RW
               [else ($oops 'assembler-internal "unrecognized fence mode")])]
         [0 #b00000000000000001111])))
 
