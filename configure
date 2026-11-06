@@ -124,7 +124,7 @@ alwaysUseBootFile=
 skipSubmoduleUpdate=
 skipImmediateMakefile=
 zuoExternal=
-sessionKey=
+sessionKey=auto
 
 CONFIG_UNAME=`uname`
 
@@ -758,7 +758,7 @@ if [ "$help" = "yes" ]; then
   echo "  --force                           disable use of pb to (re)build boot files"
   echo "  --as-is                           skip Git submodule update"
   echo "  --nomakefile                      create build-directory files only"
-  echo "  --sessionkey=<string>             base gensym session key for the build"
+  echo "  --sessionkey=<string>             build gensym key (default auto; empty disables)"
   echo "  CC=<C compiler>                   C compiler"
   echo "  CPPFLAGS=<C preprocessor flags>   C preprocessor flags"
   echo "  CPPFLAGS+=<C preprocessor flags>  add C preprocessor flags"
