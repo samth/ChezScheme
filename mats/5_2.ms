@@ -1568,3 +1568,67 @@
   (check-tortoise-hare (lambda (l) (partition integer? l) 'ok))
   (check-tortoise-hare generate-temporaries)
   )
+
+;; Scalar replacement must prove freshness and read-only uses even though
+;; ordinary Chez pairs are mutable. Run both modes without changing the default.
+(mat scalar-replacement-cons
+  (andmap
+    (lambda (enabled)
+      (parameterize ([enable-scalar-replacement enabled])
+        (equal?
+          (eval '(let loop ([i 17] [p (cons 0.0 0.0)])
+                   (if (fx= i 0)
+                       (fl+ (car p) (cdr p))
+                       (loop (fx- i 1)
+                             (cons (fl+ (car p) 0.125)
+                                   (fl+ (cdr p) 0.125))))))
+          4.25)))
+    '(#f #t))
+  (andmap
+    (lambda (enabled)
+      (parameterize ([enable-scalar-replacement enabled])
+        (equal?
+          (eval '(let loop ([i 4] [p (cons 10 0)])
+                   (if (pair? p)
+                       (if (null? p) 'bad
+                           (if (= i 0) (+ (car p) (cdr p))
+                               (loop (- i 1)
+                                     (if (even? i)
+                                         (cons (+ 1 (car p)) 2)
+                                         (cons (+ 2 (car p)) 3)))))
+                       'bad)))
+          19)))
+    '(#f #t)))
+
+(mat scalar-replacement-cons-effects
+  (andmap
+    (lambda (enabled)
+      (parameterize ([enable-scalar-replacement enabled])
+        (equal?
+          (eval '(let ([effects '()])
+                   (let* ([a (begin (set! effects (cons 1 effects)) 10)]
+                          [b (begin (set! effects (cons 2 effects)) 20)]
+                          [p (cons a b)])
+                     (list (car p) effects))))
+          '(10 (2 1)))))
+    '(#f #t)))
+
+(mat scalar-replacement-cons-fallbacks
+  (andmap
+    (lambda (enabled)
+      (parameterize ([enable-scalar-replacement enabled])
+        (and
+          (= (eval '(let* ([p (cons 1 2)] [q p])
+                      (set-car! q 8) (car p))) 8)
+          (eval '(let ([p (cons 1 #f)]) (set-cdr! p p) (eq? p (cdr p)))))))
+    '(#f #t))
+  (andmap
+    (lambda (enabled)
+      (parameterize ([enable-scalar-replacement enabled])
+        (eval '(let ([k #f] [again? #f] [first #f])
+                 (let ([p (let loop ([i 2] [p (cons 2 0)])
+                            (call/cc (lambda (resume) (set! k resume)))
+                            (if (= i 0) p (loop (- i 1) (cons i 0))))])
+                   (if again? (eq? p first)
+                       (begin (set! first p) (set! again? #t) (k 'again))))))))
+    '(#f #t)))

@@ -1,6 +1,7 @@
 ;;; Prototype scalar replacement on Lsrc, before cpcheck.
 ;;; Licensed under Apache-2.0, like the surrounding Chez compiler.
-;;; Deliberately limited to immutable, non-inherited Scheme-object records.
+;;; Immutable, non-inherited Scheme-object records and fresh nonescaping pairs.
+;;; Pairs may be mutable in the language, but all uses must be read-only here.
 (begin
 (define enable-scalar-replacement
  ($make-thread-parameter (equal? (getenv "CHEZ_SCALAR_REPLACEMENT") "1")
@@ -28,7 +29,9 @@
     (if (fixnum? fs)
      (fx+ (constant record-data-disp) (fxsll index (constant log2-ptr-bytes)))
      (fld-byte (list-ref fs index)))))
-  (define (field-count rtd) (let ([fs (rtd-flds rtd)]) (if (fixnum? fs) fs (length fs))))
+  (define (field-count rtd)
+   (if (eq? rtd 'pair) 2
+    (let ([fs (rtd-flds rtd)]) (if (fixnum? fs) fs (length fs)))))
   ;; Binding/reference helpers follow cpcse; its loop shape is reused below.
   (define (ref x)
    ;; Failed candidates must not mutate metadata on the original program.
@@ -44,6 +47,8 @@
      (bind x (car e*) (bind-all (cdr e*) (lambda (x*) (k (cons x x*))))))))
   (define (initial-shape e)
    (nanopass-case (Lsrc Expr) e
+    [(call ,preinfo1 ,pr ,e1 ,e2)
+     (guard (eq? (primref-name pr) 'cons)) 'pair]
     [(record ,rtd ,rtd-expr ,e* ...) (and (shape? rtd) rtd)]
     [(quote ,d) (and (record? d) (let ([rtd (record-rtd d)]) (and (shape? rtd) rtd)))]
     [(seq ,e1 ,e2) (initial-shape e2)]
@@ -83,6 +88,11 @@
    (when (< split-fuel 0) (fail #f))
    (with-output-language (Lsrc Expr)
     (nanopass-case (Lsrc Expr) e
+     [(call ,preinfo1 ,pr ,e1 ,e2)
+      (guard (eq? (primref-name pr) 'cons))
+      (unless (eq? rtd 'pair) (fail #f))
+      ;; Keep both initializers, including effects/errors in an unused slot.
+      (bind-all (list (visit e1 #f) (visit e2 #f)) k)]
      [(record ,rtd1 ,rtd-expr1 ,e* ...)
       (unless (and (eq? rtd1 rtd) (= (length e*) (field-count rtd))) (fail #f))
       (when (and candidate-descriptor
@@ -136,6 +146,14 @@
        (bind x (visit (car as) #f) (loop (cons x before) (cdr as) (+ index 1)))))))
    (define-pass visit : Lsrc (ir tail?) -> Lsrc ()
     (Expr : Expr (ir tail?) -> Expr ()
+     [(call ,preinfo1 ,pr (ref ,maybe-src ,x))
+      (guard (and (eq? rtd 'pair) (eq? x p)
+                  (memq (primref-name pr) '(car cdr pair? null?))))
+      (case (primref-name pr)
+       [(car) (field 0)]
+       [(cdr) (field 1)]
+       [(pair?) `(quote #t)]
+       [(null?) `(quote #f)])]
      [(call ,preinfo1 ,pr (ref ,maybe-src ,x) ,e)
       (guard (and (eq? x p) (eq? (primref-name pr) 'record?)))
       (unless (same-descriptor? candidate-descriptor (descriptor-key e)) (fail #f))
@@ -146,13 +164,14 @@
       (field index)]
      [(call ,preinfo1 ,pr (quote ,d1) (ref ,maybe-src ,x) (quote ,d2))
       (guard (and (eq? x p) (eq? (primref-name pr) '$object-ref)))
-      (unless (eq? d1 'scheme-object) (fail #f))
+      (unless (and (not (eq? rtd 'pair)) (eq? d1 'scheme-object)) (fail #f))
       (let loop ([index 0])
        (cond [(= index (field-count rtd)) (fail #f)]
              [(eqv? d2 (field-offset rtd index)) (field index)]
              [else (loop (+ index 1))]))]
      [(call ,preinfo1 ,pr (ref ,maybe-src ,x) (quote ,d))
       (guard (and (eq? x p) (eq? (primref-name pr) '$record-ref)))
+      (when (eq? rtd 'pair) (fail #f))
       (field d)]
      [(call ,preinfo1 (ref ,maybe-src ,x) ,e* ...)
       (guard (and x1 (eq? x x1)))
