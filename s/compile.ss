@@ -834,6 +834,8 @@
                                         (let ([x ($pass-time 'cpletrec (lambda () (do-trace $cpletrec x)))])
                                           (check-prelex-flags x 'cpletrec)
                                           x))))]
+                           [x2a ($pass-time 'cpsra (lambda () (do-trace $cpsra x2a)))]
+                           [waste (check-prelex-flags x2a 'cpsra)]
                            [x2b ($pass-time 'cpcheck (lambda () (do-trace $cpcheck x2a)))]
                            [waste (check-prelex-flags x2b 'cpcheck)]
                            [x2b ($pass-time 'cpcse (lambda () (do-trace $cpcse x2b)))]
@@ -1814,6 +1816,7 @@
                                   x2)])
                           (if cpletrec-ran? x
                               ($pass-time 'cpletrec (lambda () ($cpletrec x))))))]
+                 [x2a ($pass-time 'cpsra (lambda () ($cpsra x2a)))]
                  [x2b ($pass-time 'cpcheck (lambda () ($cpcheck x2a)))]
                  [x2b ($pass-time 'cpcse (lambda () ($cpcse x2b)))]
                  [x2b ($pass-time 'cpcommonize (lambda () ($cpcommonize x2b)))])
