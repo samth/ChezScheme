@@ -49,3 +49,27 @@ preimage: `python3 tools/build-key-probe.py --zuo /absolute/path/to/zuo`.
 Compact command/status/timing and boot hash evidence is in
 `prototype-evidence/boot-results.json`. Complete logs remain in the local
 investigation workspace.
+
+
+## Dependency-audit fixes, 2026-11-06
+
+The C graph now includes CPPFLAGS and the other compile settings, separate
+archive/library/link settings, producer/helper files, and disableiconv for the
+generated configuration header. LZ4 includes its whole source/build-script tree,
+including the newer Makefile.inc used by Racket's bundled version. Nested zlib
+and LZ4 actions build in clean trees without VCS metadata; flags cannot leave
+old nested-make objects behind. The pinned Nanopass compilation declares its
+complete 14-file output group. Only expeditor.o depends on nocurses.h.
+
+Native bootquick/build and mutation regressions passed for this checkout and
+Racket's bundled copy. Each of the five audited LZ4 source/header edits triggers
+a real compiler error; bad CPPFLAGS, LDFLAGS and final-link-only flags are
+detected; disableiconv regenerates config.h; deleting a Nanopass helper restores
+it. A nocurses.h comment rebuilds just expeditor.o, versus 31 objects before
+the fix. See `prototype-evidence/dependency-fixes.json`.
+
+Reproduce with `python3 tools/dependency-regressions.py --zuo /absolute/zuo
+--workarea /isolated/build/ta6le --output /new/evidence/directory`. The test
+requires isolated sources, preserves a native workarea backup, and restores
+source/configuration changes in finally blocks. Linux-native validation does
+not establish other-platform coverage or complete ambient-toolchain tracking.
