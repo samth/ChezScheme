@@ -5863,10 +5863,17 @@
     (case-lambda
       [(x) ($cp0 x #t)]
       [(x ltbc?)
-       (fluid-let ([likely-to-be-compiled? ltbc?]
+       (fluid-let ([score-limit (let ([v (getenv "CHEZ_EXPERIMENT_SCORE")])
+                                 (if v (string->number v) score-limit))]
+                   [effort-limit (let ([v (getenv "CHEZ_EXPERIMENT_EFFORT")])
+                                  (if v (string->number v) effort-limit))]
+                   [likely-to-be-compiled? ltbc?]
                    [opending-list '()]
                    [cp0-info-hashtable (make-weak-eq-hashtable)]
                    [exts-table (make-weak-eq-hashtable)])
+         (when (getenv "CHEZ_EXPERIMENT_REPORT")
+          (fprintf (console-error-port) "CP0-CONFIG score=~s effort=~s unroll=~s\n"
+           score-limit effort-limit outer-unroll-limit))
          (cp0 x 'tail empty-env (new-scorer) (new-watchdog) #f #f))]))))
 
 ; check to make sure all required handlers were seen, after expansion of the

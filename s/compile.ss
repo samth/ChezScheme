@@ -824,17 +824,29 @@
                                               (let* ([x ($pass-time 'cp0 (lambda () (do-trace $cp0 x)))]
                                                      [waste (check-prelex-flags x 'cp0)]
                                                      [x (cptypes x)]
+[x (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "early")
+           ($pass-time 'cpsra (lambda () ($cpsra x))) x)]
                                                      [waste (check-prelex-flags x 'cptypes)]
                                                      [x ($pass-time 'cpletrec (lambda () (do-trace $cpletrec x)))]
                                                      [waste (check-prelex-flags x 'cpletrec)])
-                                                x))
+                                                (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "cycle")
+                                                 ($pass-time 'cpsra (lambda () ($cpsra x))) x)))
                                             x2)])
                                     (if cpletrec-ran?
                                         x
                                         (let ([x ($pass-time 'cpletrec (lambda () (do-trace $cpletrec x)))])
                                           (check-prelex-flags x 'cpletrec)
                                           x))))]
-                           [x2a ($pass-time 'cpsra (lambda () (do-trace $cpsra x2a)))]
+                           [x2a (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "extra")
+                     (let* ([x ($pass-time 'cp0 (lambda () ($cp0 x2a)))]
+                 [x (cptypes x)]
+                 [x ($pass-time 'cpletrec (lambda () ($cpletrec x)))]) x) x2a)]
+            [x2a (if (member (getenv "CHEZ_EXPERIMENT_ORDER") '("early" "cycle")) x2a
+                     ($pass-time 'cpsra (lambda () ($cpsra x2a))))]
+            [x2a (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "cleanup")
+                     (let* ([x ($pass-time 'cp0 (lambda () ($cp0 x2a)))]
+                 [x (cptypes x)]
+                 [x ($pass-time 'cpletrec (lambda () ($cpletrec x)))]) x) x2a)]
                            [waste (check-prelex-flags x2a 'cpsra)]
                            [x2b ($pass-time 'cpcheck (lambda () (do-trace $cpcheck x2a)))]
                            [waste (check-prelex-flags x2b 'cpcheck)]
@@ -1811,12 +1823,25 @@
                                   (lambda (x)
                                     (set! cpletrec-ran? #t)
                                     (let* ([x ($pass-time 'cp0 (lambda () ($cp0 x)))]
-                                           [x (cptypes x)])
-                                      ($pass-time 'cpletrec (lambda () ($cpletrec x)))))
+                                           [x (cptypes x)]
+[x (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "early")
+           ($pass-time 'cpsra (lambda () ($cpsra x))) x)])
+                                      (let ([x ($pass-time 'cpletrec (lambda () ($cpletrec x)))])
+                                       (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "cycle")
+                                        ($pass-time 'cpsra (lambda () ($cpsra x))) x))))
                                   x2)])
                           (if cpletrec-ran? x
                               ($pass-time 'cpletrec (lambda () ($cpletrec x))))))]
-                 [x2a ($pass-time 'cpsra (lambda () ($cpsra x2a)))]
+                 [x2a (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "extra")
+                     (let* ([x ($pass-time 'cp0 (lambda () ($cp0 x2a)))]
+                 [x (cptypes x)]
+                 [x ($pass-time 'cpletrec (lambda () ($cpletrec x)))]) x) x2a)]
+            [x2a (if (member (getenv "CHEZ_EXPERIMENT_ORDER") '("early" "cycle")) x2a
+                     ($pass-time 'cpsra (lambda () ($cpsra x2a))))]
+            [x2a (if (equal? (getenv "CHEZ_EXPERIMENT_ORDER") "cleanup")
+                     (let* ([x ($pass-time 'cp0 (lambda () ($cp0 x2a)))]
+                 [x (cptypes x)]
+                 [x ($pass-time 'cpletrec (lambda () ($cpletrec x)))]) x) x2a)]
                  [x2b ($pass-time 'cpcheck (lambda () ($cpcheck x2a)))]
                  [x2b ($pass-time 'cpcse (lambda () ($cpcse x2b)))]
                  [x2b ($pass-time 'cpcommonize (lambda () ($cpcommonize x2b)))])
