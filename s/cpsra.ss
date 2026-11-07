@@ -171,12 +171,12 @@
                          (helper-reject 'clone-size fail))
                         (set! helper-fuel (- helper-fuel (count-Lsrc body)))
                         (when (< helper-fuel 0) (helper-reject 'budget fail))
-                        (let ([v (vector f position (make-prelex* 'sra-helper) #f)])
+                        (let ([v (vector f position (make-sra-prelex 'sra-helper) #f)])
                          (set! helper-clones (cons v helper-clones))
                          (nanopass-case (Lsrc Expr) (fresh-helper-body proc)
                           [(case-lambda ,preinfo (clause (,x2* ...) ,interface ,body))
                            (let* ([q (list-ref x2* position)]
-                                  [fs (map (lambda (i) (make-prelex* 'sra-parameter)) (iota (field-count rtd)))]
+                                  [fs (map (lambda (i) (make-sra-prelex 'sra-parameter)) (iota (field-count rtd)))]
                                   [new-x* (append (list-head x2* position) fs (list-tail x2* (+ position 1)))]
                                   [new-body (rewrite-region body q rtd fs #f #f '() fail)])
                             (vector-set! v 3
@@ -226,7 +226,7 @@
       (case-lambda ,(make-preinfo-lambda) (clause (,x) 1 ,body)) ,rhs)))
   (define (bind-all e* k)
    (if (null? e*) (k '())
-    (let ([x (make-prelex* 'sra-value)])
+    (let ([x (make-sra-prelex 'sra-value)])
      (bind x (car e*) (bind-all (cdr e*) (lambda (x*) (k (cons x x*))))))))
   (define (initial-shape e)
    (nanopass-case (Lsrc Expr) e
@@ -294,8 +294,8 @@
      [(if ,e0 ,e1 ,e2)
       ;; Share the continuation: duplicating k could duplicate existing prelex
       ;; binders (including a loop definition) across the two branches.
-      (let ([join (make-prelex* 'sra-join)]
-            [fields (map (lambda (index) (make-prelex* 'sra-merge))
+      (let ([join (make-sra-prelex 'sra-join)]
+            [fields (map (lambda (index) (make-sra-prelex 'sra-merge))
                          (iota (field-count rtd)))])
        (define (send fields)
         `(call ,(make-preinfo-call) ,(ref join) ,(map ref fields) ...))
@@ -325,7 +325,7 @@
          (lambda (after)
           (with-output-language (Lsrc Expr)
            `(call ,(make-preinfo-call) ,(ref x1) ,(map ref (append (reverse before) fs after)) ...))))))
-      (let ([x (make-prelex* 'sra-arg)])
+      (let ([x (make-sra-prelex 'sra-arg)])
        (bind x (visit (car as) #f) (loop (cons x before) (cdr as) (+ index 1)))))))
    (define-pass visit : Lsrc (ir tail?) -> Lsrc ()
     (Expr : Expr (ir tail?) -> Expr ()
@@ -417,7 +417,7 @@
          (let ([rtd (initial-shape (car as))])
          (and rtd
           (call/cc (lambda (fail)
-           (let* ([fields (map (lambda (index) (make-prelex* 'sra-field)) (iota (field-count rtd)))]
+           (let* ([fields (map (lambda (index) (make-sra-prelex 'sra-field)) (iota (field-count rtd)))]
                   [body (rewrite-region body (car ps) rtd fields x1 pos x* fail)]
                   [new-xs (append (list-head x* pos) fields (list-tail x* (+ pos 1)))])
             (let bind-entry ([as e*] [before '()] [index 0])
@@ -429,7 +429,7 @@
                   (with-output-language (Lsrc Expr)
                    `(letrec ([,x1 (case-lambda ,preinfo2 (clause (,new-xs ...) ,(length new-xs) ,body))])
                      (call ,preinfo1 ,(ref x1) ,(map ref (append (reverse before) initial after)) ...)))))))
-              (let ([x (make-prelex* 'sra-entry)])
+              (let ([x (make-sra-prelex 'sra-entry)])
                (bind x (car as) (bind-entry (cdr as) (cons x before) (+ index 1)))))))))))))
        (loop (cdr ps) (cdr as) (+ pos 1)))))))
   (define (try-loop x1 preinfo2 x* interface body preinfo1 maybe-src e*)
@@ -472,7 +472,7 @@
                     `(case-lambda ,(make-preinfo-lambda)
                       (clause (,xs ...) ,(length xs) ,body)))]
           [wrapper (mark-refs (clear-bound (fresh-helper-body wrapper)))]
-          [out ($pass-time 'cpsra-local-cp0 (lambda () ($cpletrec ($cp0 wrapper))))])
+          [out ($pass-time 'cpsra-local-cp0 (lambda () (let* ([x ($cp0 wrapper)] [x (if (and (equal? region-mode "types") (enable-type-recovery)) ($cptypes x) x)]) ($cpletrec x))))])
     (nanopass-case (Lsrc Expr) out
      [(case-lambda ,preinfo (clause (,x2* ...) ,interface ,body))
       (unless (and (= interface (length xs)) (= (length x2*) (length xs)))
@@ -501,7 +501,7 @@
     body
     (let loop ([body body] [rounds 2] [changed? changed?])
      (let ([size (count-Lsrc body)])
-      (if (or (= rounds 0) (> size 2048) (> size local-fuel)) body
+      (if (or (= rounds 0) (> size (if (equal? (getenv "CHEZ_SRA_LOCAL_MAX") "8192") 8192 2048)) (> size local-fuel)) body
        (begin
         (set! local-fuel (- local-fuel size))
         (set! local-trials (+ local-trials 1))
@@ -517,6 +517,133 @@
            (set! local-commits (+ local-commits 1))
            (if more? (loop trial (- rounds 1) #t) trial))
           body))))))))
+
+  ;; Worklist regions include their binding forms and loop entry/backedge scope.
+  ;; Scalar binders introduced by successful SRA are the change signal. Failed
+  ;; trial binders never occur in the output, so they cannot enqueue a region.
+  (define-threaded region-mode)
+  (define-threaded region-marks)
+  (define-threaded region-trials)
+  (define-threaded region-commits)
+  (define-threaded region-nodes)
+  (define-threaded region-root-commits)
+  (define (make-sra-prelex name)
+   (let ([x (make-prelex* name)])
+    (when region-mode (eq-hashtable-set! region-marks x #t)) x))
+  (define (region-children ir)
+   (nanopass-case (Lsrc Expr) ir
+    [(if ,e0 ,e1 ,e2) (list e0 e1 e2)]
+    [(seq ,e0 ,e1) (list e0 e1)]
+    [(set! ,maybe-src ,x ,e) (list e)]
+    [(case-lambda ,preinfo ,cl* ...)
+     (map (lambda (cl) (nanopass-case (Lsrc CaseLambdaClause) cl
+            [(clause (,x* ...) ,interface ,body) body])) cl*)]
+    [(letrec ([,x* ,e*] ...) ,body) (cons body e*)]
+    [(letrec* ([,x* ,e*] ...) ,body) (cons body e*)]
+    [(call ,preinfo ,e0 ,e* ...) (cons e0 e*)]
+    [(record-type ,rtd ,e) (list e)]
+    [(record-cd ,rcd ,rtd-expr ,e) (list rtd-expr e)]
+    [(immutable-list (,e* ...) ,e) (cons e e*)]
+    [(immutable-vector (,e* ...) ,e) (cons e e*)]
+    [(record ,rtd ,rtd-expr ,e* ...) (cons rtd-expr e*)]
+    [(record-ref ,rtd ,type ,index ,e) (list e)]
+    [(record-set! ,rtd ,type ,index ,e1 ,e2) (list e1 e2)]
+    [(cte-optimization-loc ,box ,e ,exts) (list e)]
+    [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) (list e)]
+    [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type) (list e)]
+    [(cpvalid-defer ,e) (list e)]
+    [else '()]))
+  (define (cleanup-regions input)
+   (define cache (make-eq-hashtable))
+   ;; One linear index per sweep; n counts Expr nodes, not source characters.
+   (define (info ir)
+    (or (eq-hashtable-ref cache ir #f)
+     (let* ([cs (map info (region-children ir))]
+            [changed (or (ormap (lambda (v) (vector-ref v 1)) cs)
+                         (nanopass-case (Lsrc Expr) ir
+                          [(ref ,maybe-src ,x) (eq-hashtable-ref region-marks x #f)]
+                          [else #f]))]
+            [unsupported (or (ormap (lambda (v) (vector-ref v 2)) cs)
+                             (nanopass-case (Lsrc Expr) ir
+                              [(cte-optimization-loc ,box ,e ,exts) #t] [else #f]))]
+            [v (vector (+ 1 (apply + (map (lambda (v) (vector-ref v 0)) cs))) changed unsupported)])
+      (eq-hashtable-set! cache ir v) v)))
+   (define (scope? ir)
+    (nanopass-case (Lsrc Expr) ir
+     [(letrec ([,x* ,e*] ...) ,body) #t]
+     [(letrec* ([,x* ,e*] ...) ,body) #t]
+     [(call ,preinfo (case-lambda ,preinfo2 ,cl* ...) ,e* ...) #t]
+     [(call ,preinfo (letrec ([,x* ,e*] ...) ,body) ,e1* ...) #t]
+     [(case-lambda ,preinfo ,cl* ...) #t]
+     [else #f]))
+   (define (sra trial)
+    (fluid-let ([local-active? #t] [helper-mode 'off]
+                [helper-definitions (make-eq-hashtable)]
+                [helper-scopes (make-eq-hashtable)])
+     (let ([out (transform trial)])
+      (if (member (getenv "CHEZ_SRA_HELPERS") '("inline" "specialize"))
+       (begin (collect-helpers out)
+        (fluid-let ([helper-mode (string->symbol (getenv "CHEZ_SRA_HELPERS"))])
+         (transform out))) out))))
+   (define (try ir root?)
+    (define (round ir remaining first?)
+     (let* ([v (info ir)] [n (vector-ref v 0)])
+      (and (> remaining 0) (or (not first?) (vector-ref v 1)) (not (vector-ref v 2))
+           (<= n (if (equal? (getenv "CHEZ_SRA_REGION_LIMIT") "2048") 2048 8192))
+           (<= (+ region-nodes n) 32768)
+       (begin
+        (set! region-trials (+ region-trials 1))
+        (set! region-nodes (+ region-nodes n))
+        (let* ([before (+ local-count loop-count)]
+               [trial (isolated-cp0 ir)]
+               [trial (and trial (sra trial))])
+         (and trial (<= (count-Lsrc trial) (+ 256 (* 3 n)))
+          (begin
+           (set! region-commits (+ region-commits 1))
+           (when root? (set! region-root-commits (+ region-root-commits 1)))
+           (when (getenv "CHEZ_REGION_REPORT")
+            (fprintf (console-error-port)
+             "SRA-REGION-COMMIT root=~s input=~s output=~s new-sra=~s allocations=~s/~s\n"
+             root? n (count-Lsrc trial) (- (+ local-count loop-count) before)
+             (allocation-count ir) (allocation-count trial)))
+           (or (and (or (> (+ local-count loop-count) before)
+                        (< (allocation-count trial) (allocation-count ir)))
+                    (round trial (- remaining 1) #f))
+               trial))))))))
+    (round ir (if (equal? region-mode "scope2") 2 1) #t))
+   (define (visit ir root?)
+    (or (and (or root? (scope? ir)) (try ir root?)) (descend ir)))
+   (define-pass descend : Lsrc (ir) -> Lsrc ()
+    (Expr : Expr (ir) -> Expr ()
+     [(cte-optimization-loc ,box ,e ,exts) ir]
+     [(if ,e0 ,e1 ,e2) `(if ,(visit e0 #f) ,(visit e1 #f) ,(visit e2 #f))]
+     [(seq ,e0 ,e1) `(seq ,(visit e0 #f) ,(visit e1 #f))]
+     [(set! ,maybe-src ,x ,e) `(set! ,maybe-src ,x ,(visit e #f))]
+     [(case-lambda ,preinfo ,cl* ...)
+      `(case-lambda ,preinfo ,(map (lambda (cl)
+         (nanopass-case (Lsrc CaseLambdaClause) cl
+          [(clause (,x* ...) ,interface ,body)
+           (with-output-language (Lsrc CaseLambdaClause)
+            `(clause (,x* ...) ,interface ,(visit body #f)))])) cl*) ...)]
+     [(letrec ([,x* ,e*] ...) ,body)
+      `(letrec ([,x* ,(map (lambda (e) (visit e #f)) e*)] ...) ,(visit body #f))]
+     [(letrec* ([,x* ,e*] ...) ,body)
+      `(letrec* ([,x* ,(map (lambda (e) (visit e #f)) e*)] ...) ,(visit body #f))]
+     [(call ,preinfo ,e0 ,e* ...)
+      `(call ,preinfo ,(visit e0 #f) ,(map (lambda (e) (visit e #f)) e*) ...)]
+     [(record-type ,rtd ,e) `(record-type ,rtd ,(visit e #f))]
+     [(record-cd ,rcd ,rtd-expr ,e) `(record-cd ,rcd ,(visit rtd-expr #f) ,(visit e #f))]
+     [(immutable-list (,e* ...) ,e) `(immutable-list (,(map (lambda (e) (visit e #f)) e*) ...) ,(visit e #f))]
+     [(immutable-vector (,e* ...) ,e) `(immutable-vector (,(map (lambda (e) (visit e #f)) e*) ...) ,(visit e #f))]
+     [(record ,rtd ,rtd-expr ,e* ...) `(record ,rtd ,(visit rtd-expr #f) ,(map (lambda (e) (visit e #f)) e*) ...)]
+     [(record-ref ,rtd ,type ,index ,e) `(record-ref ,rtd ,type ,index ,(visit e #f))]
+     [(record-set! ,rtd ,type ,index ,e1 ,e2) `(record-set! ,rtd ,type ,index ,(visit e1 #f) ,(visit e2 #f))]
+     [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type)
+      `(foreign (,conv* ...) ,name ,(visit e #f) (,arg-type* ...) ,result-type)]
+     [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type)
+      `(fcallable (,conv* ...) ,(visit e #f) (,arg-type* ...) ,result-type)]
+     [(cpvalid-defer ,e) `(cpvalid-defer ,(visit e #f))]))
+   (visit input #t))
 
   (define-pass transform : Lsrc (ir) -> Lsrc ()
    (Expr : Expr (ir) -> Expr ()
@@ -568,7 +695,10 @@
      (set-prelex-referenced! x #t) ir]))
   (lambda (x)
    (if (enable-scalar-replacement)
-    (fluid-let ([local-mode (let ([v (getenv "CHEZ_SRA_LOCAL_CP0")])
+    (fluid-let ([region-mode (let ([s (getenv "CHEZ_SRA_REGION_CP0")]) (and (member s '("scope" "scope2" "types")) s))]
+                [region-marks (make-eq-hashtable)] [region-trials 0] [region-commits 0]
+                [region-nodes 0] [region-root-commits 0]
+                [local-mode (let ([v (getenv "CHEZ_SRA_LOCAL_CP0")])
                              (and (member v '("cleanup" "retry")) (string->symbol v)))]
                 [local-active? #f] [local-fuel 32768]
                 [local-trials 0] [local-commits 0] [local-candidates 0]
@@ -582,7 +712,8 @@
                     (begin (collect-helpers out)
                      (fluid-let ([helper-mode (string->symbol mode)]) (transform out)))
                     out))]
-            [out (if (and (= local-count 0) (= loop-count 0) (= local-commits 0))
+            [out (if (and region-mode (> (+ local-count loop-count) 0)) (cleanup-regions out) out)]
+            [out (if (and (= region-commits 0) (= local-count 0) (= loop-count 0) (= local-commits 0))
                      x (mark-refs (clear-bound out)))])
      (when (getenv "CHEZ_SRA_REPORT")
       (fprintf (console-error-port) "SRA-HELPERS roots=~s inline=~s clones=~s attempts=~s failures=~s\n"
@@ -591,6 +722,9 @@
             (vector->list (hashtable-keys helper-failures)))))
      (when (getenv "CHEZ_SRA_REPORT")
       (fprintf (console-error-port) "SRA local=~s loops=~s\n" local-count loop-count))
+     (when (getenv "CHEZ_REGION_REPORT")
+      (fprintf (console-error-port) "SRA-REGIONS trials=~s commits=~s nodes=~s roots=~s input=~s\n"
+       region-trials region-commits region-nodes region-root-commits (count-Lsrc x)))
      (when (getenv "CHEZ_AGGREGATE_REPORT")
       (fprintf (console-error-port) "SRA-LOCAL trials=~s commits=~s nodes=~s\n"
        local-trials local-commits (- 32768 local-fuel)))
