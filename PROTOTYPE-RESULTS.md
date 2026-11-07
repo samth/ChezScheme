@@ -1,75 +1,23 @@
-# Automatic reproducible boot identities: prototype
+# Explicit CI session keys; ordinary defaults restored
 
-Based on upstream `68a0bc5e` (which already includes PR #1079's optional
-`--sessionkey=` machinery). Configure now defaults to `--sessionkey=auto`.
-No runtime-wide gensym policy is changed. Passing `--sessionkey=` opts out;
-explicit custom keys retain the previous behavior.
+The automatic-default experiment has been removed. `configure`,
+`makefiles/lib.zuo` and `BUILDING` match the upstream baseline. The existing
+`--sessionkey=...` option retains its per-action formula; `auto` is again just an
+ordinary explicitly supplied string. Normal builds do not set a session key.
+The audited C/configuration/library/output dependency fixes are preserved.
 
-Automatic keys include a digest of Scheme/compiler source trees, the actual
-compiler executable, action script, startup inputs, host machine/arguments,
-and the existing per-action/output scope. They are computed only by build
-drivers. Source hashing avoids assigning the same unit namespace to changed
-source. The entire source context is conservative, and this does not promise
-identical output between incremental and clean builds or across build paths.
-This is a prototype to evaluate automatic naming, not a general FASL normalizer
-or artifact cache. Do not use a single global fixed gensym prefix.
+The narrowed CI prototype is in `samth/racket`, branch
+`prototype/ci-boot-session-key`: a CI-only Zuo helper derives a key from Chez,
+PB, compiler and build inputs, and an opt-in adapter forwards it to the existing
+Chez option. It does not change this checkout's runtime/default behavior.
 
-## Measured on Linux x86-64, 2026-11-06
+`tools/build-key-probe.py` verifies no default override and the exact upstream
+explicit-key formula. `tools/reproducible-boot-probe.py` now requires
+`--sessionkey=...` and compares explicitly seeded builds with builds passing no
+option. Its former automatic-mode options have been removed.
 
-Two fresh bootquick builds with automatic keys produced **8/8 byte-identical**
-boot/header files. Two with `--sessionkey=` produced 6/8 identical files;
-`petite.boot` and `scheme.boot` differed. Each used the same source root, build
-root and native bootstrap host. Automatic runs took 17.72 and 16.78 seconds;
-opt-out runs took 21.94 and 21.32 seconds. These single-run timings overlap
-other local work and are not a controlled overhead estimate or CI speedup.
-
-The normal PB-to-native build also completed successfully using the checked-in
-PB boots, without first generating native boots using the external host.
-A native compiler built from the automatic boot group passed arithmetic/hash
-smoke checks. Independent executions generated different ordinary gensym
-unique names, confirming that application naming remains random.
-
-Reproduce the boot comparison with Python 3 and an existing native Chez:
-
-```sh
-python3 tools/reproducible-boot-probe.py \
-  --zuo /absolute/path/to/zuo \
-  --host-scheme '/absolute/native/scheme -B /absolute/native/petite.boot -B /absolute/native/scheme.boot'
-```
-
-The script retains command exit statuses, full logs and SHA-256 manifests in a
-new evidence directory. It never modifies the source checkout. Other platforms,
-profiled builds, and configurations need broader evaluation. A separately
-pushed Racket branch mirrors this in its **bundled** Chez sources; updating this
-checkout alone does not change Racket's build.
-
-The fast build-key probe also checks stable keys, invalidation after source,
-script or action changes, empty-key opt-out, and the exact legacy custom-key
-preimage: `python3 tools/build-key-probe.py --zuo /absolute/path/to/zuo`.
-Compact command/status/timing and boot hash evidence is in
-`prototype-evidence/boot-results.json`. Complete logs remain in the local
-investigation workspace.
-
-
-## Dependency-audit fixes, 2026-11-06
-
-The C graph now includes CPPFLAGS and the other compile settings, separate
-archive/library/link settings, producer/helper files, and disableiconv for the
-generated configuration header. LZ4 includes its whole source/build-script tree,
-including the newer Makefile.inc used by Racket's bundled version. Nested zlib
-and LZ4 actions build in clean trees without VCS metadata; flags cannot leave
-old nested-make objects behind. The pinned Nanopass compilation declares its
-complete 14-file output group. Only expeditor.o depends on nocurses.h.
-
-Native bootquick/build and mutation regressions passed for this checkout and
-Racket's bundled copy. Each of the five audited LZ4 source/header edits triggers
-a real compiler error; bad CPPFLAGS, LDFLAGS and final-link-only flags are
-detected; disableiconv regenerates config.h; deleting a Nanopass helper restores
-it. A nocurses.h comment rebuilds just expeditor.o, versus 31 objects before
-the fix. See `prototype-evidence/dependency-fixes.json`.
-
-Reproduce with `python3 tools/dependency-regressions.py --zuo /absolute/zuo
---workarea /isolated/build/ta6le --output /new/evidence/directory`. The test
-requires isolated sources, preserves a native workarea backup, and restores
-source/configuration changes in finally blocks. Linux-native validation does
-not establish other-platform coverage or complete ambient-toolchain tracking.
+Earlier automatic-default boot manifests are historical evidence only. The
+current CI prototype carries paired seeded/default boot evidence and normal
+Racket PB-to-native bootstrap evidence. `prototype-evidence/dependency-fixes.json`
+retains the standalone dependency regression results. Use fresh output directories
+when changing key policy, as required by the upstream explicit-key option.
