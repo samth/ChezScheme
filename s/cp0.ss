@@ -85,6 +85,8 @@
   (define-threaded outer-unroll-limit 0)
 
   ;;; used to memoize pure?, etc.
+  (define-threaded aggregate-projections-enabled?)
+  (define-threaded aggregate-projections)
   (define-threaded cp0-info-hashtable)
 
   ;; use to preserve sharing with `exts` renaming
@@ -2099,6 +2101,69 @@
              ; argument is discovered to be a list.  nothing more we can do here.
              (residualize-primcall pr #f opnds ctxt sc)]))))
 
+    ;; Racket lowers record projections to byte-offset $object-ref calls.
+    ;; Reconnect proven immutable Scheme-object fields to CP0's existing
+    ;; record-ref propagation. No generic raw-memory folding is enabled.
+    (define fold-known-object-ref
+      (lambda (args opnds ctxt sc wd name moi)
+        (and (= (length opnds) 3)
+             (let* ([type-e (car args)] [record-e (cadr args)] [offset-e (caddr args)])
+               (and (cp0-constant? (lambda (d) (eq? d 'scheme-object)) (result-exp type-e))
+                    (cp0-constant? fixnum? (result-exp offset-e))
+                    (let ([offset (cp0-datum (result-exp offset-e))])
+                      (define (field-index rtd)
+                        (let ([flds (rtd-flds rtd)])
+                          (if (fixnum? flds)
+                              (let ([delta (- offset (constant record-data-disp))])
+                                (and (>= delta 0)
+                                     (= (modulo delta (constant ptr-bytes)) 0)
+                                     (let ([i (quotient delta (constant ptr-bytes))])
+                                       (and (< i flds) (rtd-immutable-field? rtd i) i))))
+                              (let loop ([flds flds] [i 0])
+                                (and (pair? flds)
+                                     (if (= offset (fld-byte (car flds)))
+                                         (and (not (fld-mutable? (car flds)))
+                                              (eq? (filter-foreign-type (fld-type (car flds))) 'scheme-object)
+                                              i)
+                                         (loop (cdr flds) (+ i 1))))))))
+                      (define (finish rtd)
+                        (let ([i (field-index rtd)])
+                          (and i
+                               (begin
+                                 (set! aggregate-projections (+ aggregate-projections 1))
+                                 (residualize-seq opnds '() ctxt)
+                                 (non-result-exp type-e
+                                   (non-result-exp offset-e
+                                     (cp0 `(record-ref ,rtd scheme-object ,i ,record-e)
+                                          (app-ctxt ctxt) empty-env sc wd name moi)))))))
+                      (define (finish-indirect rtd e*)
+                        (let ([i (field-index rtd)])
+                          (and i (< i (length e*))
+                               (let ([e (list-ref e* i)])
+                                 (and (nanopass-case (Lsrc Expr) e
+                                        [(quote ,d) #t]
+                                        [(ref ,maybe-src ,x)
+                                         (and (not (prelex-assigned x)) (not (prelex-was-assigned x)))]
+                                        [,pr (all-set? (prim-mask proc) (primref-flags pr))]
+                                        [else #f])
+                                      (begin
+                                        (set! aggregate-projections (+ aggregate-projections 1))
+                                        (residualize-seq opnds '() ctxt)
+                                        (non-result-exp type-e
+                                          (non-result-exp offset-e
+                                            (non-result-exp record-e
+                                              (cp0 e (app-ctxt ctxt) empty-env sc wd name moi))))))))))
+                      (nanopass-case (Lsrc Expr) (result-exp/indirect-ref record-e)
+                        [(record ,rtd ,rtd-expr ,e* ...)
+                         ;; Existing direct record-ref folding can discard the
+                         ;; descriptor expression. Require a literal here.
+                         (nanopass-case (Lsrc Expr) (result-exp record-e)
+                           [(record ,rtd1 ,rtd-expr1 ,e1* ...)
+                            (and (cp0-constant? rtd-expr) (finish rtd))]
+                           [else (finish-indirect rtd e*)])]
+                        [(quote ,d) (and (record? d) (finish (record-rtd d)))]
+                        [else #f])))))))
+
     (define fold-primref2
       (lambda (pr sym opnds pflags ctxt sc wd name moi)
         (safe-assert (convention-case (app-convention ctxt) [(call) #t] [else #f]))
@@ -2111,6 +2176,10 @@
                    (let ([level (if (all-set? (prim-mask unsafe) pflags) 3 2)])
                      (handler level opnds ctxt sc wd name moi)))
               (let ([args (value-visit-operands! opnds)])
+                (or (and aggregate-projections-enabled?
+                   (eq? sym '$object-ref)
+                   (all-set? (prim-mask unsafe) pflags)
+                   (fold-known-object-ref args opnds ctxt sc wd name moi))
                 (cond
                   [(and (all-set? (prim-mask mifoldable+) pflags)
                         (let ([objs (objs-if-constant args)])
@@ -2126,7 +2195,7 @@
                      (residualize-seq '() opnds ctxt)
                      e)]
                   [else
-                   (residualize-primcall pr args opnds ctxt sc)]))))))
+                   (residualize-primcall pr args opnds ctxt sc)])))))))
 
     (define residualize-primcall
       (lambda (pr args opnds ctxt sc)
@@ -5867,6 +5936,8 @@
                                  (if v (string->number v) score-limit))]
                    [effort-limit (let ([v (getenv "CHEZ_EXPERIMENT_EFFORT")])
                                   (if v (string->number v) effort-limit))]
+                   [aggregate-projections-enabled? (equal? (getenv "CHEZ_CP0_AGGREGATES") "1")]
+                   [aggregate-projections 0]
                    [likely-to-be-compiled? ltbc?]
                    [opending-list '()]
                    [cp0-info-hashtable (make-weak-eq-hashtable)]
@@ -5874,7 +5945,10 @@
          (when (getenv "CHEZ_EXPERIMENT_REPORT")
           (fprintf (console-error-port) "CP0-CONFIG score=~s effort=~s unroll=~s\n"
            score-limit effort-limit outer-unroll-limit))
-         (cp0 x 'tail empty-env (new-scorer) (new-watchdog) #f #f))]))))
+         (let ([out (cp0 x 'tail empty-env (new-scorer) (new-watchdog) #f #f)])
+          (when (getenv "CHEZ_AGGREGATE_REPORT")
+           (fprintf (console-error-port) "CP0-AGGREGATES projections=~s\n" aggregate-projections))
+          out))]))))
 
 ; check to make sure all required handlers were seen, after expansion of the
 ; expression above has been completed

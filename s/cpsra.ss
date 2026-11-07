@@ -16,6 +16,12 @@
   (define-threaded candidate-descriptor)
   (define-threaded local-count)
   (define-threaded loop-count)
+  (define-threaded local-mode)
+  (define-threaded local-active?)
+  (define-threaded local-fuel)
+  (define-threaded local-trials)
+  (define-threaded local-commits)
+  (define-threaded local-candidates)
   (define rtd-flds (csv7:record-field-accessor #!base-rtd 'flds))
   (define rtd-mpm (csv7:record-field-accessor #!base-rtd 'mpm))
   (define (shape? rtd)
@@ -395,6 +401,7 @@
        (split-value e rtd (lambda (e tail?) e) fail
         (lambda (fields) (rewrite-region body x rtd fields #f #f '() fail)))))))))
   (define (try-local x e body)
+   (when (initial-shape e) (set! local-candidates (+ local-candidates 1)))
    (let ([answer (and (initial-shape e) (< (count-Lsrc body) 4096)
                   (fluid-let ([split-fuel 64] [candidate-descriptor (initial-descriptor e)])
                    (attempt-helpers x e (lambda () (try-local/raw x e body)))))])
@@ -430,8 +437,101 @@
                   (fluid-let ([split-fuel 64])
                    (try-loop/raw x1 preinfo2 x* interface body preinfo1 maybe-src e*)))])
     (when answer (set! loop-count (+ loop-count 1))) answer))
+  ;; Optimize a lambda body in an isolated environment. Synthetic formals stand
+  ;; for all free variables, including assigned ones. Clone before recomputing
+  ;; flags, so rejected trials cannot mutate the surrounding compiler state.
+  (define (isolated-cp0 body)
+   (define bound (make-eq-hashtable))
+   (define free (make-eq-hashtable))
+   (define free-order '())
+   (define unsupported? #f)
+   (define (note-free! x)
+    (unless (or (eq-hashtable-ref bound x #f) (eq-hashtable-ref free x #f))
+     (eq-hashtable-set! free x #t)
+     (set! free-order (cons x free-order))))
+   (define-pass bindings : Lsrc (ir) -> Lsrc ()
+    (Expr : Expr (ir) -> Expr ()
+     [(cte-optimization-loc ,box ,e ,exts) (set! unsupported? #t) ir]
+     [(letrec ([,x* ,[e*]] ...) ,[body])
+      (for-each (lambda (x) (eq-hashtable-set! bound x #t)) x*) ir]
+     [(letrec* ([,x* ,[e*]] ...) ,[body])
+      (for-each (lambda (x) (eq-hashtable-set! bound x #t)) x*) ir])
+    (CaseLambdaClause : CaseLambdaClause (ir) -> CaseLambdaClause ()
+     [(clause (,x* ...) ,interface ,[body])
+      (for-each (lambda (x) (eq-hashtable-set! bound x #t)) x*) ir]))
+   (define-pass uses : Lsrc (ir) -> Lsrc ()
+    (Expr : Expr (ir) -> Expr ()
+     [(ref ,maybe-src ,x)
+      (note-free! x) ir]
+     [(set! ,maybe-src ,x ,[e])
+      (note-free! x) ir]))
+   (bindings body) (uses body)
+   (and (not unsupported?)
+   (let* ([xs (reverse free-order)]
+          [wrapper (with-output-language (Lsrc Expr)
+                    `(case-lambda ,(make-preinfo-lambda)
+                      (clause (,xs ...) ,(length xs) ,body)))]
+          [wrapper (mark-refs (clear-bound (fresh-helper-body wrapper)))]
+          [out ($pass-time 'cpsra-local-cp0 (lambda () ($cpletrec ($cp0 wrapper))))])
+    (nanopass-case (Lsrc Expr) out
+     [(case-lambda ,preinfo (clause (,x2* ...) ,interface ,body))
+      (unless (and (= interface (length xs)) (= (length x2*) (length xs)))
+       ($oops 'cpsra "local CP0 changed wrapper arity"))
+      (let ([mapping (map cons x2* xs)])
+       (define (rename x) (cond [(assq x mapping) => cdr] [else x]))
+       (define-pass restore : Lsrc (ir) -> Lsrc ()
+        (Expr : Expr (ir) -> Expr ()
+         [(ref ,maybe-src ,x) `(ref ,maybe-src ,(rename x))]
+         [(set! ,maybe-src ,x ,[e]) `(set! ,maybe-src ,(rename x) ,e)]))
+       (restore body))]
+     [else ($oops 'cpsra "local CP0 lost wrapper lambda")])))
+  )
+  (define (allocation-count body)
+   (define n 0)
+   (define-pass scan : Lsrc (ir) -> Lsrc ()
+    (Expr : Expr (ir) -> Expr ()
+     [(record ,rtd ,[rtd-expr] ,[e*] ...) (set! n (+ n 1)) ir]
+     [(call ,preinfo ,pr ,[e*] ...)
+      (guard (eq? (primref-name pr) 'cons))
+      (set! n (+ n 1)) ir]))
+   (scan body) n)
+  (define (refine-body body changed? candidates?)
+   (if (or local-active? (not local-mode)
+           (not (or changed? (and (eq? local-mode 'retry) candidates?))))
+    body
+    (let loop ([body body] [rounds 2] [changed? changed?])
+     (let ([size (count-Lsrc body)])
+      (if (or (= rounds 0) (> size 2048) (> size local-fuel)) body
+       (begin
+        (set! local-fuel (- local-fuel size))
+        (set! local-trials (+ local-trials 1))
+        (let* ([before (+ local-count loop-count)]
+               [trial (isolated-cp0 body)]
+               [trial (and trial (fluid-let ([local-active? #t])
+                        (collect-helpers trial)
+                        (transform trial)))]
+               [more? (or (> (+ local-count loop-count) before)
+                          (and trial (< (allocation-count trial) (allocation-count body))))])
+         (if (and trial (or changed? more?))
+          (begin
+           (set! local-commits (+ local-commits 1))
+           (if more? (loop trial (- rounds 1) #t) trial))
+          body))))))))
+
   (define-pass transform : Lsrc (ir) -> Lsrc ()
    (Expr : Expr (ir) -> Expr ()
+    [(case-lambda ,preinfo ,cl* ...)
+     `(case-lambda ,preinfo
+       ,(map (lambda (cl)
+          (nanopass-case (Lsrc CaseLambdaClause) cl
+           [(clause (,x* ...) ,interface ,body)
+            (let* ([before (+ local-count loop-count)]
+                   [candidates local-candidates]
+                   [body (Expr body)]
+                   [body (refine-body body (> (+ local-count loop-count) before)
+                                           (> local-candidates candidates))])
+             (with-output-language (Lsrc CaseLambdaClause)
+              `(clause (,x* ...) ,interface ,body)))])) cl*) ...)]
     [(letrec ([,x1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,[body]))])
        (call ,preinfo1 (ref ,maybe-src ,x2) ,[e*] ...))
      (guard (eq? x1 x2))
@@ -468,7 +568,11 @@
      (set-prelex-referenced! x #t) ir]))
   (lambda (x)
    (if (enable-scalar-replacement)
-    (fluid-let ([local-count 0] [loop-count 0] [helper-mode 'off]
+    (fluid-let ([local-mode (let ([v (getenv "CHEZ_SRA_LOCAL_CP0")])
+                             (and (member v '("cleanup" "retry")) (string->symbol v)))]
+                [local-active? #f] [local-fuel 32768]
+                [local-trials 0] [local-commits 0] [local-candidates 0]
+                [local-count 0] [loop-count 0] [helper-mode 'off]
                 [helper-definitions (make-eq-hashtable)] [helper-scopes (make-eq-hashtable)]
                 [helper-total-inline 0] [helper-total-clones 0] [helper-roots 0]
                 [helper-attempts 0] [helper-failures (make-eq-hashtable)] [helper-eliminated '()])
@@ -478,7 +582,7 @@
                     (begin (collect-helpers out)
                      (fluid-let ([helper-mode (string->symbol mode)]) (transform out)))
                     out))]
-            [out (if (and (= local-count 0) (= loop-count 0))
+            [out (if (and (= local-count 0) (= loop-count 0) (= local-commits 0))
                      x (mark-refs (clear-bound out)))])
      (when (getenv "CHEZ_SRA_REPORT")
       (fprintf (console-error-port) "SRA-HELPERS roots=~s inline=~s clones=~s attempts=~s failures=~s\n"
@@ -487,6 +591,9 @@
             (vector->list (hashtable-keys helper-failures)))))
      (when (getenv "CHEZ_SRA_REPORT")
       (fprintf (console-error-port) "SRA local=~s loops=~s\n" local-count loop-count))
+     (when (getenv "CHEZ_AGGREGATE_REPORT")
+      (fprintf (console-error-port) "SRA-LOCAL trials=~s commits=~s nodes=~s\n"
+       local-trials local-commits (- 32768 local-fuel)))
      (when (getenv "CHEZ_SRA_DUMP")
       (pretty-print (list 'before (unparse-Lsrc x)) (console-error-port))
       (pretty-print (list 'after (unparse-Lsrc out)) (console-error-port)))
