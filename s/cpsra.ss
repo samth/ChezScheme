@@ -1,6 +1,8 @@
 ;;; Prototype scalar replacement on Lsrc, before cpcheck.
 ;;; Licensed under Apache-2.0, like the surrounding Chez compiler.
-;;; Immutable, non-inherited Scheme-object records and fresh nonescaping pairs.
+;;; Fresh nonescaping Scheme-object records and pairs; actual uses must be read-only.
+;;; CHEZ_SRA_HELPERS=inline or specialize enables the two experimental helper policies.
+;;; Quoted records retain the stricter immutable, non-inherited eligibility rule.
 ;;; Pairs may be mutable in the language, but all uses must be read-only here.
 (begin
 (define enable-scalar-replacement
@@ -32,6 +34,181 @@
   (define (field-count rtd)
    (if (eq? rtd 'pair) 2
     (let ([fs (rtd-flds rtd)]) (if (fixnum? fs) fs (length fs)))))
+
+  (define (fresh-shape? rtd)
+   (let ([fs (rtd-flds rtd)])
+    (if (fixnum? fs) (<= 1 fs 8)
+     (and (<= 1 (length fs) 8)
+          (andmap (lambda (f) (eq? (filter-foreign-type (fld-type f)) 'scheme-object)) fs)))))
+  (define (ancestor? a b) (and b (or (eq? a b) (ancestor? a (record-type-parent b)))))
+
+  ;; Two experimental, allocation-driven ways to cross known helper calls.
+  (define-threaded helper-mode)
+  (define-threaded helper-definitions)
+  (define-threaded helper-scopes)
+  (define-threaded helper-origin)
+  (define-threaded helper-clones)
+  (define-threaded helper-stack)
+  (define-threaded helper-fuel)
+  (define-threaded helper-inline-count)
+  (define-threaded helper-total-inline)
+  (define-threaded helper-total-clones)
+  (define-threaded helper-roots)
+  (define-threaded helper-attempts)
+  (define-threaded helper-failures)
+  (define-threaded helper-eliminated)
+  (define (helper-note key)
+   (eq-hashtable-set! helper-failures key (+ 1 (eq-hashtable-ref helper-failures key 0))))
+  (define (helper-reject key fail) (helper-note key) (fail #f))
+  (define (known-helper x)
+   (and (not (prelex-assigned x))
+    (let ([proc (eq-hashtable-ref helper-definitions x #f)])
+     (and proc (not (mentions? proc helper-eliminated)) proc))))
+  (define (register-helpers x* e*)
+   (for-each (lambda (x e)
+    (nanopass-case (Lsrc Expr) e
+     [(case-lambda ,preinfo (clause (,x* ...) ,interface ,body))
+      (when (and (= interface (length x*)) (not (prelex-assigned x)))
+       (eq-hashtable-set! helper-definitions x e))]
+     [else (void)])) x* e*))
+  (define (collect-helpers ir)
+   (define scope '())
+   (define (enter x* thunk)
+    (let ([s (cons (list #f) scope)])
+     (for-each (lambda (x) (eq-hashtable-set! helper-scopes x s)) x*)
+     (fluid-let ([scope s]) (thunk))))
+   (define-pass scan : Lsrc (ir) -> Lsrc ()
+    (Expr : Expr (ir) -> Expr ()
+     [(letrec ([,x* ,e*] ...) ,body)
+      (register-helpers x* e*)
+      (enter x* (lambda () (for-each Expr e*) (Expr body))) ir]
+     [(letrec* ([,x* ,e*] ...) ,body)
+      (register-helpers x* e*)
+      (enter x* (lambda () (for-each Expr e*) (Expr body))) ir]
+     [(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,body)) ,e* ...)
+      (when (= interface (length e*)) (register-helpers x* e*))
+      (for-each Expr e*) (enter x* (lambda () (Expr body))) ir])
+    (CaseLambdaClause : CaseLambdaClause (ir) -> CaseLambdaClause ()
+     [(clause (,x* ...) ,interface ,body)
+      (enter x* (lambda () (Expr body))) ir]))
+   (scan ir))
+  ;; Every copied binder gets a fresh prelex. Free lexical references stay free.
+  ;; Copy all flags; the successful whole pass recomputes reference flags.
+  (define (fresh-helper-body ir)
+   (define renames '())
+   (define (rename x) (cond [(assq x renames) => cdr] [else x]))
+   (define (enter x* thunk)
+    (let ([y* (map (lambda (x) (make-prelex (prelex-name x) (prelex-flags x)
+                                  (prelex-source x) #f)) x*)])
+     (fluid-let ([renames (append (map cons x* y*) renames)]) (thunk y*))))
+   (define-pass copy : Lsrc (ir) -> Lsrc ()
+    (Expr : Expr (ir) -> Expr ()
+     [(ref ,maybe-src ,x) `(ref ,maybe-src ,(rename x))]
+     [(set! ,maybe-src ,x ,[e]) `(set! ,maybe-src ,(rename x) ,e)]
+     [(letrec ([,x* ,e*] ...) ,body)
+      (enter x* (lambda (x2*) `(letrec ([,x2* ,(map Expr e*)] ...) ,(Expr body))))]
+     [(letrec* ([,x* ,e*] ...) ,body)
+      (enter x* (lambda (x2*) `(letrec* ([,x2* ,(map Expr e*)] ...) ,(Expr body))))])
+    (CaseLambdaClause : CaseLambdaClause (ir) -> CaseLambdaClause ()
+     [(clause (,x* ...) ,interface ,body)
+      (enter x* (lambda (x2*) `(clause (,x2* ...) ,interface ,(Expr body))))]))
+   (copy ir))
+  (define (helper-position args p rtd)
+   (let loop ([as args] [i 0])
+    (and (pair? as)
+     (if (nanopass-case (Lsrc Expr) (car as)
+          [(ref ,maybe-src ,x) (eq? p x)] [else #f])
+      i (loop (cdr as) (+ i 1))))))
+  ;; Cache entries: #(original-function position clone-variable rhs-or-#f).
+  ;; A placeholder is installed before visiting a body, permitting SCCs.
+  (define (find-helper-clone f position)
+   (find (lambda (v) (and (eq? f (vector-ref v 0)) (= position (vector-ref v 1)))) helper-clones))
+  (define (helper-visible? f)
+   (let ([scope (eq-hashtable-ref helper-scopes f #f)])
+    (and scope (memq (car scope) helper-origin))))
+  (define (helper-call f args p rtd fields visit fail)
+   (let* ([proc (known-helper f)] [position (and proc (helper-position args p rtd))])
+    (and position
+     (begin
+      (set! helper-attempts (+ 1 helper-attempts))
+      (nanopass-case (Lsrc Expr) proc
+       [(case-lambda ,preinfo (clause (,x* ...) ,interface ,body))
+        (unless (= interface (length args)) (helper-reject 'arity fail))
+        (when (prelex-assigned (list-ref x* position)) (helper-reject 'assigned-argument fail))
+        (if (eq? helper-mode 'inline)
+         (begin
+          (when (or (> (count-Lsrc body) 256) (memq f helper-stack))
+           (helper-reject 'inline-size-or-cycle fail))
+          (set! helper-fuel (- helper-fuel (count-Lsrc body)))
+          (when (< helper-fuel 0) (helper-reject 'budget fail))
+          (nanopass-case (Lsrc Expr) (fresh-helper-body proc)
+           [(case-lambda ,preinfo (clause (,x2* ...) ,interface ,body))
+            (let* ([q (list-ref x2* position)]
+                   [new-body (fluid-let ([helper-stack (cons f helper-stack)])
+                               ;; The helper may also capture the outer candidate.
+                               ;; Process those free uses in the caller's context.
+                               (visit (rewrite-region body q rtd fields #f #f '() fail) #t))]
+                   [keep-x* (append (list-head x2* position) (list-tail x2* (+ position 1)))]
+                   [keep-args (append (list-head args position) (list-tail args (+ position 1)))])
+             (set! helper-inline-count (+ helper-inline-count 1))
+             (with-output-language (Lsrc Expr)
+              `(call ,(make-preinfo-call)
+                (case-lambda ,preinfo (clause (,keep-x* ...) ,(length keep-x*) ,new-body))
+                ,(map (lambda (e) (visit e #f)) keep-args) ...)))]))
+         (begin
+          ;; Clones are emitted at the allocation's lexical scope. Only helpers
+          ;; already in scope there can be cloned at that scope.
+          (unless (helper-visible? f) (helper-reject 'clone-scope fail))
+          (let ([entry (or (find-helper-clone f position)
+                       (begin
+                        (when (or (>= (length helper-clones) 32) (> (count-Lsrc body) 4096))
+                         (helper-reject 'clone-size fail))
+                        (set! helper-fuel (- helper-fuel (count-Lsrc body)))
+                        (when (< helper-fuel 0) (helper-reject 'budget fail))
+                        (let ([v (vector f position (make-prelex* 'sra-helper) #f)])
+                         (set! helper-clones (cons v helper-clones))
+                         (nanopass-case (Lsrc Expr) (fresh-helper-body proc)
+                          [(case-lambda ,preinfo (clause (,x2* ...) ,interface ,body))
+                           (let* ([q (list-ref x2* position)]
+                                  [fs (map (lambda (i) (make-prelex* 'sra-parameter)) (iota (field-count rtd)))]
+                                  [new-x* (append (list-head x2* position) fs (list-tail x2* (+ position 1)))]
+                                  [new-body (rewrite-region body q rtd fs #f #f '() fail)])
+                            (vector-set! v 3
+                             (with-output-language (Lsrc Expr)
+                              `(case-lambda ,preinfo (clause (,new-x* ...) ,(length new-x*) ,new-body)))))])
+                         v)))])
+           (with-output-language (Lsrc Expr)
+            `(call ,(make-preinfo-call) ,(ref (vector-ref entry 2))
+              ,(append (map (lambda (e) (visit e #f)) (list-head args position))
+                       (map ref fields)
+                       (map (lambda (e) (visit e #f)) (list-tail args (+ position 1)))) ...)))))])))))
+  (define (attempt-helpers x e thunk)
+   (if (eq? helper-mode 'off) (thunk)
+    (fluid-let ([helper-origin (eq-hashtable-ref helper-scopes x '())]
+                [helper-clones '()] [helper-stack '()] [helper-fuel 30000]
+                [helper-inline-count 0])
+     (let ([answer (thunk)])
+      (and answer
+       (begin
+        (set! helper-eliminated (cons x helper-eliminated))
+        (when (or (> helper-inline-count 0) (pair? helper-clones))
+         (set! helper-roots (+ 1 helper-roots))
+         (when (getenv "CHEZ_SRA_REPORT")
+      (fprintf (console-error-port) "SRA-HELPERS roots=~s inline=~s clones=~s attempts=~s failures=~s\n"
+       helper-roots helper-total-inline helper-total-clones helper-attempts
+       (map (lambda (k) (list k (eq-hashtable-ref helper-failures k 0)))
+            (vector->list (hashtable-keys helper-failures)))))
+     (when (getenv "CHEZ_SRA_REPORT")
+          (fprintf (console-error-port) "SRA-HELPER-SUCCESS ~s ~s inline=~s clones=~s\n"
+           (prelex-name x) (initial-shape e) helper-inline-count
+           (map (lambda (v) (prelex-name (vector-ref v 0))) helper-clones))))
+        (set! helper-total-inline (+ helper-total-inline helper-inline-count))
+        (set! helper-total-clones (+ helper-total-clones (length helper-clones)))
+        (if (null? helper-clones) answer
+         (with-output-language (Lsrc Expr)
+          `(letrec ([,(map (lambda (v) (vector-ref v 2)) helper-clones)
+                     ,(map (lambda (v) (vector-ref v 3)) helper-clones)] ...) ,answer)))))))))
+
   ;; Binding/reference helpers follow cpcse; its loop shape is reused below.
   (define (ref x)
    ;; Failed candidates must not mutate metadata on the original program.
@@ -49,7 +226,7 @@
    (nanopass-case (Lsrc Expr) e
     [(call ,preinfo1 ,pr ,e1 ,e2)
      (guard (eq? (primref-name pr) 'cons)) 'pair]
-    [(record ,rtd ,rtd-expr ,e* ...) (and (shape? rtd) rtd)]
+    [(record ,rtd ,rtd-expr ,e* ...) (and (fresh-shape? rtd) rtd)]
     [(quote ,d) (and (record? d) (let ([rtd (record-rtd d)]) (and (shape? rtd) rtd)))]
     [(seq ,e1 ,e2) (initial-shape e2)]
     [(if ,e0 ,e1 ,e2) (let ([rtd (initial-shape e1)]) (and rtd (eq? rtd (initial-shape e2)) rtd))]
@@ -102,7 +279,7 @@
       `(seq ,(visit rtd-expr1 #f)
         ,(bind-all (map (lambda (e) (visit e #f)) e*) k))]
      [(quote ,d)
-      (unless (and (record? d) (eq? (record-rtd d) rtd)) (fail #f))
+      (unless (and (record? d) (shape? rtd) (eq? (record-rtd d) rtd)) (fail #f))
       (when (and candidate-descriptor
                  (not (same-descriptor? candidate-descriptor (cons 'quote (record-rtd d)))))
        (fail #f))
@@ -160,7 +337,7 @@
       `(quote #t)]
      [(record-ref ,rtd1 ,type ,index (ref ,maybe-src ,x))
       (guard (eq? x p))
-      (unless (eq? rtd1 rtd) (fail #f))
+      (unless (and (not (eq? rtd 'pair)) (ancestor? rtd1 rtd)) (fail #f))
       (field index)]
      [(call ,preinfo1 ,pr (quote ,d1) (ref ,maybe-src ,x) (quote ,d2))
       (guard (and (eq? x p) (eq? (primref-name pr) '$object-ref)))
@@ -192,7 +369,17 @@
       `(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,(Expr body tail?)))
              ,(map (lambda (e) (Expr e #f)) e*) ...)]
      [(case-lambda ,preinfo2 ,cl* ...)
-      (when (mentions? ir (if x1 (list p x1) (list p))) (fail #f)) ir]
+      (when (and x1 (mentions? ir (list x1))) (fail #f))
+      `(case-lambda ,preinfo2
+        ,(map (lambda (cl)
+          (nanopass-case (Lsrc CaseLambdaClause) cl
+           [(clause (,x* ...) ,interface ,body)
+            (with-output-language (Lsrc CaseLambdaClause)
+             `(clause (,x* ...) ,interface ,(Expr body #t)))])) cl*) ...)]
+     [(call ,preinfo1 (ref ,maybe-src ,x) ,e* ...)
+      (guard (not (eq? helper-mode 'off)))
+      (or (helper-call x e* p rtd fields visit fail)
+          `(call ,preinfo1 ,(Expr (ref x) #f) ,(map (lambda (e) (Expr e #f)) e*) ...))]
      [(call ,preinfo1 ,e ,e* ...) `(call ,preinfo1 ,(Expr e #f) ,(map (lambda (e) (Expr e #f)) e*) ...)]
      [(letrec ([,x* ,e*] ...) ,body)
       `(letrec ([,x* ,(map (lambda (e) (Expr e #f)) e*)] ...) ,(Expr body tail?))]
@@ -210,7 +397,7 @@
   (define (try-local x e body)
    (let ([answer (and (initial-shape e) (< (count-Lsrc body) 4096)
                   (fluid-let ([split-fuel 64] [candidate-descriptor (initial-descriptor e)])
-                   (try-local/raw x e body)))])
+                   (attempt-helpers x e (lambda () (try-local/raw x e body)))))])
     (when answer (set! local-count (+ local-count 1))) answer))
   (define (try-loop/raw x1 preinfo2 x* interface body preinfo1 maybe-src e*)
    (and (not (prelex-assigned x1)) (= interface (length x*)) (= interface (length e*))
@@ -239,7 +426,7 @@
                (bind x (car as) (bind-entry (cdr as) (cons x before) (+ index 1)))))))))))))
        (loop (cdr ps) (cdr as) (+ pos 1)))))))
   (define (try-loop x1 preinfo2 x* interface body preinfo1 maybe-src e*)
-   (let ([answer (and (ormap initial-shape e*) (< (count-Lsrc body) 4096)
+   (let ([answer (and (eq? helper-mode 'off) (ormap initial-shape e*) (< (count-Lsrc body) 4096)
                   (fluid-let ([split-fuel 64])
                    (try-loop/raw x1 preinfo2 x* interface body preinfo1 maybe-src e*)))])
     (when answer (set! loop-count (+ loop-count 1))) answer))
@@ -281,10 +468,23 @@
      (set-prelex-referenced! x #t) ir]))
   (lambda (x)
    (if (enable-scalar-replacement)
-    (fluid-let ([local-count 0] [loop-count 0])
+    (fluid-let ([local-count 0] [loop-count 0] [helper-mode 'off]
+                [helper-definitions (make-eq-hashtable)] [helper-scopes (make-eq-hashtable)]
+                [helper-total-inline 0] [helper-total-clones 0] [helper-roots 0]
+                [helper-attempts 0] [helper-failures (make-eq-hashtable)] [helper-eliminated '()])
      (let* ([out (transform x)]
+            [out (let ([mode (getenv "CHEZ_SRA_HELPERS")])
+                   (if (member mode '("inline" "specialize"))
+                    (begin (collect-helpers out)
+                     (fluid-let ([helper-mode (string->symbol mode)]) (transform out)))
+                    out))]
             [out (if (and (= local-count 0) (= loop-count 0))
                      x (mark-refs (clear-bound out)))])
+     (when (getenv "CHEZ_SRA_REPORT")
+      (fprintf (console-error-port) "SRA-HELPERS roots=~s inline=~s clones=~s attempts=~s failures=~s\n"
+       helper-roots helper-total-inline helper-total-clones helper-attempts
+       (map (lambda (k) (list k (eq-hashtable-ref helper-failures k 0)))
+            (vector->list (hashtable-keys helper-failures)))))
      (when (getenv "CHEZ_SRA_REPORT")
       (fprintf (console-error-port) "SRA local=~s loops=~s\n" local-count loop-count))
      (when (getenv "CHEZ_SRA_DUMP")
