@@ -49,6 +49,14 @@
   (define (ancestor? a b) (and b (or (eq? a b) (ancestor? a (record-type-parent b)))))
 
   ;; Two experimental, allocation-driven ways to cross known helper calls.
+  (define-threaded cost-mode)
+  (define-threaded size-cache)
+  (define-threaded validity-cache)
+  (define (sra-size ir)
+   (if (member cost-mode '("cache" "bounded"))
+    (or (eq-hashtable-ref size-cache ir #f)
+        (let ([n (count-Lsrc ir)]) (eq-hashtable-set! size-cache ir n) n))
+    (count-Lsrc ir)))
   (define-threaded helper-mode)
   (define-threaded helper-definitions)
   (define-threaded helper-scopes)
@@ -66,10 +74,19 @@
   (define (helper-note key)
    (eq-hashtable-set! helper-failures key (+ 1 (eq-hashtable-ref helper-failures key 0))))
   (define (helper-reject key fail) (helper-note key) (fail #f))
+  (define (helper-valid? proc)
+   (if (not cost-mode) (not (mentions? proc helper-eliminated))
+    (or (null? helper-eliminated)
+     (if (member cost-mode '("cache" "bounded"))
+      (let ([v (eq-hashtable-ref validity-cache proc #f)])
+       (if (and v (eq? (car v) helper-eliminated)) (cdr v)
+        (let ([valid? (not (mentions? proc helper-eliminated))])
+         (eq-hashtable-set! validity-cache proc (cons helper-eliminated valid?)) valid?)))
+      (not (mentions? proc helper-eliminated))))))
   (define (known-helper x)
    (and (not (prelex-assigned x))
     (let ([proc (eq-hashtable-ref helper-definitions x #f)])
-     (and proc (not (mentions? proc helper-eliminated)) proc))))
+     (and proc (helper-valid? proc) proc))))
   (define (register-helpers x* e*)
    (for-each (lambda (x e)
     (nanopass-case (Lsrc Expr) e
@@ -133,7 +150,9 @@
    (let ([scope (eq-hashtable-ref helper-scopes f #f)])
     (and scope (memq (car scope) helper-origin))))
   (define (helper-call f args p rtd fields visit fail)
-   (let* ([proc (known-helper f)] [position (and proc (helper-position args p rtd))])
+   (let* ([position (and cost-mode (helper-position args p rtd))]
+          [proc (and (or (not cost-mode) position) (known-helper f))]
+          [position (and proc (if cost-mode position (helper-position args p rtd)))])
     (and position
      (begin
       (set! helper-attempts (+ 1 helper-attempts))
@@ -143,9 +162,9 @@
         (when (prelex-assigned (list-ref x* position)) (helper-reject 'assigned-argument fail))
         (if (eq? helper-mode 'inline)
          (begin
-          (when (or (> (count-Lsrc body) 256) (memq f helper-stack))
+          (when (or (> (sra-size body) 256) (memq f helper-stack))
            (helper-reject 'inline-size-or-cycle fail))
-          (set! helper-fuel (- helper-fuel (count-Lsrc body)))
+          (set! helper-fuel (- helper-fuel (sra-size body)))
           (when (< helper-fuel 0) (helper-reject 'budget fail))
           (nanopass-case (Lsrc Expr) (fresh-helper-body proc)
            [(case-lambda ,preinfo (clause (,x2* ...) ,interface ,body))
@@ -167,9 +186,9 @@
           (unless (helper-visible? f) (helper-reject 'clone-scope fail))
           (let ([entry (or (find-helper-clone f position)
                        (begin
-                        (when (or (>= (length helper-clones) 32) (> (count-Lsrc body) 4096))
+                        (when (or (>= (length helper-clones) 32) (> (sra-size body) 4096))
                          (helper-reject 'clone-size fail))
-                        (set! helper-fuel (- helper-fuel (count-Lsrc body)))
+                        (set! helper-fuel (- helper-fuel (sra-size body)))
                         (when (< helper-fuel 0) (helper-reject 'budget fail))
                         (let ([v (vector f position (make-sra-prelex 'sra-helper) #f)])
                          (set! helper-clones (cons v helper-clones))
@@ -393,6 +412,50 @@
       `(letrec* ([,x* ,(map (lambda (e) (Expr e #f)) e*)] ...) ,(Expr body tail?))])
     (Expr ir tail?))
    (visit body #t))
+  ;; Count only enough nodes to answer the eligibility question. The old guard
+  ;; traversed the entire body even when the first 4096 nodes already reject it.
+  ;; Count the same Expr + CaseLambdaClause nodes as count-Lsrc.
+  (define (body-small/raw? ir)
+   (if (not (equal? cost-mode "bounded")) (< (sra-size ir) 4096)
+    (call/cc
+     (lambda (too-large)
+      (define remaining 4096)
+      (define (tick n)
+       (set! remaining (fx- remaining n))
+       (when (fx<= remaining 0) (too-large #f)))
+      (define (walk ir)
+       (tick 1)
+       (nanopass-case (Lsrc Expr) ir
+        [(if ,e0 ,e1 ,e2) (walk e0) (walk e1) (walk e2)]
+        [(seq ,e0 ,e1) (walk e0) (walk e1)]
+        [(set! ,maybe-src ,x ,e) (walk e)]
+        [(case-lambda ,preinfo ,cl* ...)
+         (for-each (lambda (cl) (tick 1)
+          (nanopass-case (Lsrc CaseLambdaClause) cl
+           [(clause (,x* ...) ,interface ,body) (walk body)])) cl*)]
+        [(letrec ([,x* ,e*] ...) ,body) (for-each walk e*) (walk body)]
+        [(letrec* ([,x* ,e*] ...) ,body) (for-each walk e*) (walk body)]
+        [(call ,preinfo ,e0 ,e* ...) (walk e0) (for-each walk e*)]
+        [(record-type ,rtd ,e) (walk e)]
+        [(record-cd ,rcd ,rtd-expr ,e) (walk rtd-expr) (walk e)]
+        [(immutable-list (,e* ...) ,e) (for-each walk e*) (walk e)]
+        [(immutable-vector (,e* ...) ,e) (for-each walk e*) (walk e)]
+        [(record ,rtd ,rtd-expr ,e* ...) (walk rtd-expr) (for-each walk e*)]
+        [(record-ref ,rtd ,type ,index ,e) (walk e)]
+        [(record-set! ,rtd ,type ,index ,e1 ,e2) (walk e1) (walk e2)]
+        [(cte-optimization-loc ,box ,e ,exts) (walk e)]
+        [(foreign (,conv* ...) ,name ,e (,arg-type* ...) ,result-type) (walk e)]
+        [(fcallable (,conv* ...) ,e (,arg-type* ...) ,result-type) (walk e)]
+        [(cpvalid-defer ,e) (walk e)]
+        [else (void)]))
+      (walk ir) #t))))
+
+  (define (body-small? ir)
+   (let ([answer (body-small/raw? ir)])
+    (when (getenv "CHEZ_SRA_BOUND_VERIFY")
+     (unless (eq? answer (< (count-Lsrc ir) 4096))
+      ($oops 'cpsra "bounded eligibility count mismatch")))
+    answer))
   (define (try-local/raw x e body)
    (and (not (prelex-assigned x))
     (let ([rtd (initial-shape e)])
@@ -402,7 +465,7 @@
         (lambda (fields) (rewrite-region body x rtd fields #f #f '() fail)))))))))
   (define (try-local x e body)
    (when (initial-shape e) (set! local-candidates (+ local-candidates 1)))
-   (let ([answer (and (initial-shape e) (< (count-Lsrc body) 4096)
+   (let ([answer (and (initial-shape e) (body-small? body)
                   (fluid-let ([split-fuel 64] [candidate-descriptor (initial-descriptor e)])
                    (attempt-helpers x e (lambda () (try-local/raw x e body)))))])
     (when answer (set! local-count (+ local-count 1))) answer))
@@ -433,7 +496,7 @@
                (bind x (car as) (bind-entry (cdr as) (cons x before) (+ index 1)))))))))))))
        (loop (cdr ps) (cdr as) (+ pos 1)))))))
   (define (try-loop x1 preinfo2 x* interface body preinfo1 maybe-src e*)
-   (let ([answer (and (eq? helper-mode 'off) (ormap initial-shape e*) (< (count-Lsrc body) 4096)
+   (let ([answer (and (eq? helper-mode 'off) (ormap initial-shape e*) (body-small? body)
                   (fluid-let ([split-fuel 64])
                    (try-loop/raw x1 preinfo2 x* interface body preinfo1 maybe-src e*)))])
     (when answer (set! loop-count (+ loop-count 1))) answer))
@@ -500,7 +563,7 @@
            (not (or changed? (and (eq? local-mode 'retry) candidates?))))
     body
     (let loop ([body body] [rounds 2] [changed? changed?])
-     (let ([size (count-Lsrc body)])
+     (let ([size (sra-size body)])
       (if (or (= rounds 0) (> size (if (equal? (getenv "CHEZ_SRA_LOCAL_MAX") "8192") 8192 2048)) (> size local-fuel)) body
        (begin
         (set! local-fuel (- local-fuel size))
@@ -597,14 +660,14 @@
         (let* ([before (+ local-count loop-count)]
                [trial (isolated-cp0 ir)]
                [trial (and trial (sra trial))])
-         (and trial (<= (count-Lsrc trial) (+ 256 (* 3 n)))
+         (and trial (<= (sra-size trial) (+ 256 (* 3 n)))
           (begin
            (set! region-commits (+ region-commits 1))
            (when root? (set! region-root-commits (+ region-root-commits 1)))
            (when (getenv "CHEZ_REGION_REPORT")
             (fprintf (console-error-port)
              "SRA-REGION-COMMIT root=~s input=~s output=~s new-sra=~s allocations=~s/~s\n"
-             root? n (count-Lsrc trial) (- (+ local-count loop-count) before)
+             root? n (sra-size trial) (- (+ local-count loop-count) before)
              (allocation-count ir) (allocation-count trial)))
            (or (and (or (> (+ local-count loop-count) before)
                         (< (allocation-count trial) (allocation-count ir)))
@@ -695,7 +758,9 @@
      (set-prelex-referenced! x #t) ir]))
   (lambda (x)
    (if (enable-scalar-replacement)
-    (fluid-let ([region-mode (let ([s (getenv "CHEZ_SRA_REGION_CP0")]) (and (member s '("scope" "scope2" "types")) s))]
+    (fluid-let ([cost-mode (let ([v (getenv "CHEZ_SRA_COST")]) (and (member v '("guard" "cache" "bounded")) v))]
+                [size-cache (make-eq-hashtable)] [validity-cache (make-eq-hashtable)]
+                [region-mode (let ([s (getenv "CHEZ_SRA_REGION_CP0")]) (and (member s '("scope" "scope2" "types")) s))]
                 [region-marks (make-eq-hashtable)] [region-trials 0] [region-commits 0]
                 [region-nodes 0] [region-root-commits 0]
                 [local-mode (let ([v (getenv "CHEZ_SRA_LOCAL_CP0")])
@@ -724,7 +789,7 @@
       (fprintf (console-error-port) "SRA local=~s loops=~s\n" local-count loop-count))
      (when (getenv "CHEZ_REGION_REPORT")
       (fprintf (console-error-port) "SRA-REGIONS trials=~s commits=~s nodes=~s roots=~s input=~s\n"
-       region-trials region-commits region-nodes region-root-commits (count-Lsrc x)))
+       region-trials region-commits region-nodes region-root-commits (sra-size x)))
      (when (getenv "CHEZ_AGGREGATE_REPORT")
       (fprintf (console-error-port) "SRA-LOCAL trials=~s commits=~s nodes=~s\n"
        local-trials local-commits (- 32768 local-fuel)))
