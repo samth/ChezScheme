@@ -32,14 +32,37 @@
       (and (fx< 0 (length fs)) (fx<= (length fs) 8)
        (andmap (lambda (x1) (and (not (fld-mutable? x1))
                           (eq? (filter-foreign-type (fld-type x1)) 'scheme-object))) fs))))))
+  ;; $record allocates exactly one pointer slot per argument, even when the
+  ;; descriptor is an imported run-time value. Intern shapes by slot count.
+  (define dynamic-shapes (list->vector (map (lambda (n) (vector 'dynamic n)) (iota 9))))
+  (define (dynamic-shape? x) (and (vector? x) (eq? (vector-ref x 0) 'dynamic)))
+  ;; Optional aggregates carry a presence flag followed by their fields.
+  (define-threaded optional-shapes)
+  (define (optional? rtd) (and (vector? rtd) (eq? (vector-ref rtd 0) 'optional)))
+  (define (base-shape rtd) (if (optional? rtd) (vector-ref rtd 1) rtd))
+  (define (optional-shape rtd)
+   (or (eq-hashtable-ref optional-shapes rtd #f)
+       (let ([v (vector 'optional rtd)]) (eq-hashtable-set! optional-shapes rtd v) v)))
+  (define (false-value? e)
+   (nanopass-case (Lsrc Expr) e [(quote ,d) (eq? d #f)] [else #f]))
+  (define-threaded library-mode)
+  (define-threaded library-active?)
+  (define-threaded verify-shapes?)
+  (define (returned-binding? e x)
+   (nanopass-case (Lsrc Expr) e
+    [(ref ,maybe-src ,x1) (eq? x x1)]
+    [(seq ,e1 ,e2) (returned-binding? e2 x)]
+    [else #f]))
   (define (field-offset rtd index)
-   (let ([fs (rtd-flds rtd)])
+   (let ([fs (if (dynamic-shape? rtd) (vector-ref rtd 1) (rtd-flds rtd))])
     (if (fixnum? fs)
      (fx+ (constant record-data-disp) (fxsll index (constant log2-ptr-bytes)))
      (fld-byte (list-ref fs index)))))
   (define (field-count rtd)
+   (if (optional? rtd) (+ 1 (field-count (base-shape rtd)))
    (if (eq? rtd 'pair) 2
-    (let ([fs (rtd-flds rtd)]) (if (fixnum? fs) fs (length fs)))))
+   (if (dynamic-shape? rtd) (vector-ref rtd 1)
+    (let ([fs (rtd-flds rtd)]) (if (fixnum? fs) fs (length fs)))))))
 
   (define (fresh-shape? rtd)
    (let ([fs (rtd-flds rtd)])
@@ -251,12 +274,34 @@
    (nanopass-case (Lsrc Expr) e
     [(call ,preinfo1 ,pr ,e1 ,e2)
      (guard (eq? (primref-name pr) 'cons)) 'pair]
+    [(call ,preinfo ,pr ,rtd-expr ,e* ...)
+     (guard (and library-mode (eq? (primref-name pr) '$record)))
+     (and (<= 1 (length e*) 8) (descriptor-key rtd-expr)
+          (vector-ref dynamic-shapes (length e*)))]
     [(record ,rtd ,rtd-expr ,e* ...) (and (fresh-shape? rtd) rtd)]
     [(quote ,d) (and (record? d) (let ([rtd (record-rtd d)]) (and (shape? rtd) rtd)))]
     [(seq ,e1 ,e2) (initial-shape e2)]
-    [(if ,e0 ,e1 ,e2) (let ([rtd (initial-shape e1)]) (and rtd (eq? rtd (initial-shape e2)) rtd))]
+    [(if ,e0 ,e1 ,e2)
+     ;; If the first branch has neither an aggregate shape nor literal #f,
+     ;; the second branch cannot rescue the join. Avoid traversing it.
+     (let* ([a (initial-shape e1)]
+            [b (and (or a (and library-mode (false-value? e1))) (initial-shape e2))]
+            [answer (cond [(and a (eq? a b)) a]
+                          [(and library-mode library-active? a (not (optional? a)) (false-value? e2)) (optional-shape a)]
+                          [(and library-mode library-active? b (not (optional? b)) (false-value? e1)) (optional-shape b)]
+                          [else #f])])
+      (when verify-shapes?
+       (let* ([old-b (fluid-let ([verify-shapes? #f]) (initial-shape e2))]
+              [old (cond [(and a (eq? a old-b)) a]
+                         [(and library-mode library-active? a (not (optional? a)) (false-value? e2)) (optional-shape a)]
+                         [(and library-mode library-active? old-b (not (optional? old-b)) (false-value? e1)) (optional-shape old-b)]
+                         [else #f])])
+        (unless (eq? answer old) ($oops 'cpsra "shape short-circuit mismatch"))))
+      answer)]
     [(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,body)) ,e* ...)
-     (and (= interface (length e*)) (initial-shape body))]
+     (and (= interface (length e*))
+      (if (and library-mode library-active? (= interface 1) (returned-binding? body (car x*)))
+       (initial-shape (car e*)) (initial-shape body)))]
     [else #f]))
   ;; A known layout alone does not prove a dynamic record predicate. Retain
   ;; the exact, stable descriptor identity from entry and every constructor.
@@ -269,14 +314,20 @@
    (and a b (eq? (car a) (car b)) (eq? (cdr a) (cdr b))))
   (define (initial-descriptor e)
    (nanopass-case (Lsrc Expr) e
+    [(call ,preinfo ,pr ,rtd-expr ,e* ...)
+     (guard (and library-mode (eq? (primref-name pr) '$record))) (descriptor-key rtd-expr)]
     [(record ,rtd ,rtd-expr ,e* ...) (descriptor-key rtd-expr)]
     [(quote ,d) (and (record? d) (cons 'quote (record-rtd d)))]
     [(seq ,e1 ,e2) (initial-descriptor e2)]
     [(if ,e0 ,e1 ,e2)
-     (let ([a (initial-descriptor e1)])
-      (and (same-descriptor? a (initial-descriptor e2)) a))]
+     (cond [(and library-mode (false-value? e1)) (initial-descriptor e2)]
+           [(and library-mode (false-value? e2)) (initial-descriptor e1)]
+           [else (let ([a (initial-descriptor e1)])
+                  (and (same-descriptor? a (initial-descriptor e2)) a))])]
     [(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,body)) ,e* ...)
-     (and (= interface (length e*)) (initial-descriptor body))]
+     (and (= interface (length e*))
+      (if (and library-mode library-active? (= interface 1) (returned-binding? body (car x*)))
+       (initial-descriptor (car e*)) (initial-descriptor body)))]
     [else #f]))
   (define (mentions? e x*)
    (call/cc (lambda (found)
@@ -286,6 +337,16 @@
       [(set! ,maybe-src ,x ,[e]) (when (memq x x*) (found #t)) ir]))
     (scan e) #f)))
   (define (split-value e rtd visit fail k)
+   (if (and (optional? rtd) (false-value? e))
+    (with-output-language (Lsrc Expr)
+     (bind-all (map (lambda (i) `(quote #f)) (iota (field-count rtd))) k))
+    (if (and (optional? rtd) (eq? (initial-shape e) (base-shape rtd)))
+     (split-value e (base-shape rtd) visit fail
+      (lambda (fs) (with-output-language (Lsrc Expr)
+       (let ([present (make-sra-prelex 'sra-present)])
+        (bind present `(quote #t) (k (cons present fs)))))))
+     (split-value/raw e rtd visit fail k))))
+  (define (split-value/raw e rtd visit fail k)
    (set! split-fuel (- split-fuel 1))
    (when (< split-fuel 0) (fail #f))
    (with-output-language (Lsrc Expr)
@@ -295,6 +356,11 @@
       (unless (eq? rtd 'pair) (fail #f))
       ;; Keep both initializers, including effects/errors in an unused slot.
       (bind-all (list (visit e1 #f) (visit e2 #f)) k)]
+     [(call ,preinfo ,pr ,rtd-expr ,e* ...)
+      (guard (and library-mode (eq? (primref-name pr) '$record)))
+      (unless (and (dynamic-shape? rtd) (= (length e*) (field-count rtd))
+                   (same-descriptor? candidate-descriptor (descriptor-key rtd-expr))) (fail #f))
+      `(seq ,(visit rtd-expr #f) ,(bind-all (map (lambda (e) (visit e #f)) e*) k))]
      [(record ,rtd1 ,rtd-expr1 ,e* ...)
       (unless (and (eq? rtd1 rtd) (= (length e*) (field-count rtd))) (fail #f))
       (when (and candidate-descriptor
@@ -326,14 +392,19 @@
      [(seq ,e1 ,e2) `(seq ,(visit e1 #f) ,(split-value e2 rtd visit fail k))]
      [(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,body)) ,e* ...)
       (unless (= interface (length e*)) (fail #f))
-      `(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,(split-value body rtd visit fail k)))
-             ,(map (lambda (e) (visit e #f)) e*) ...)]
+      (if (and library-mode library-active? (= interface 1) (not (prelex-assigned (car x*)))
+               (returned-binding? body (car x*)))
+       (split-value (car e*) rtd visit fail
+        (lambda (fs) (rewrite-region body (car x*) rtd fs #f #f '() fail k)))
+       `(call ,preinfo1 (case-lambda ,preinfo2 (clause (,x* ...) ,interface ,(split-value body rtd visit fail k)))
+              ,(map (lambda (e) (visit e #f)) e*) ...))]
      [else (fail #f)])))
   ;; Abort an entire candidate when any use observes the object instead of its fields.
-  (define (rewrite-region body p rtd fields x1 position formals fail)
+  (define (rewrite-region body p rtd fields x1 position formals fail . tail-k)
    (define (field index)
-    (unless (and (fixnum? index) (fx<= 0 index) (fx< index (length fields))) (fail #f))
-    (ref (list-ref fields index)))
+    (let ([fs (if (optional? rtd) (cdr fields) fields)])
+     (unless (and (fixnum? index) (fx<= 0 index) (fx< index (length fs))) (fail #f))
+     (ref (list-ref fs index))))
    (define (call-loop e*)
     (unless (= (length e*) (length formals)) (fail #f))
     (let loop ([before '()] [as e*] [index 0])
@@ -357,32 +428,39 @@
        [(pair?) `(quote #t)]
        [(null?) `(quote #f)])]
      [(call ,preinfo1 ,pr (ref ,maybe-src ,x) ,e)
-      (guard (and (eq? x p) (eq? (primref-name pr) 'record?)))
+      (guard (and (eq? x p) (memq (primref-name pr) '(record? record-instance? $sealed-record? $sealed-record-instance?))))
       (unless (same-descriptor? candidate-descriptor (descriptor-key e)) (fail #f))
-      `(quote #t)]
+      (if (optional? rtd) (ref (car fields)) `(quote #t))]
      [(record-ref ,rtd1 ,type ,index (ref ,maybe-src ,x))
       (guard (eq? x p))
-      (unless (and (not (eq? rtd 'pair)) (ancestor? rtd1 rtd)) (fail #f))
+      (unless (and (not (eq? (base-shape rtd) 'pair)) (not (dynamic-shape? (base-shape rtd))) (ancestor? rtd1 (base-shape rtd))) (fail #f))
       (field index)]
      [(call ,preinfo1 ,pr (quote ,d1) (ref ,maybe-src ,x) (quote ,d2))
       (guard (and (eq? x p) (eq? (primref-name pr) '$object-ref)))
-      (unless (and (not (eq? rtd 'pair)) (eq? d1 'scheme-object)) (fail #f))
+      (unless (and (not (eq? (base-shape rtd) 'pair)) (eq? d1 'scheme-object)) (fail #f))
       (let loop ([index 0])
-       (cond [(= index (field-count rtd)) (fail #f)]
-             [(eqv? d2 (field-offset rtd index)) (field index)]
+       (cond [(= index (field-count (base-shape rtd))) (fail #f)]
+             [(eqv? d2 (field-offset (base-shape rtd) index)) (field index)]
              [else (loop (+ index 1))]))]
      [(call ,preinfo1 ,pr (ref ,maybe-src ,x) (quote ,d))
       (guard (and (eq? x p) (eq? (primref-name pr) '$record-ref)))
-      (when (eq? rtd 'pair) (fail #f))
+      (when (eq? (base-shape rtd) 'pair) (fail #f))
       (field d)]
      [(call ,preinfo1 (ref ,maybe-src ,x) ,e* ...)
       (guard (and x1 (eq? x x1)))
       (unless tail? (fail #f))
       (call-loop e*)]
-     [(ref ,maybe-src ,x) (when (or (eq? x p) (and x1 (eq? x x1))) (fail #f)) ir]
+     [(ref ,maybe-src ,x)
+      (cond [(eq? x p) (if (and tail? (pair? tail-k)) ((car tail-k) fields) (fail #f))]
+            [(and x1 (eq? x x1)) (fail #f)] [else ir])]
      [(set! ,maybe-src ,x ,e)
       (when (or (eq? x p) (and x1 (eq? x x1))) (fail #f))
       `(set! ,maybe-src ,x ,(Expr e #f))]
+     [(if (ref ,maybe-src ,x) ,e1 ,e2)
+      (guard (and library-mode library-active? (eq? x p)))
+      (if (optional? rtd)
+       `(if ,(ref (car fields)) ,(Expr e1 tail?) ,(Expr e2 tail?))
+       (Expr e1 tail?))]
      [(if ,e0 ,e1 ,e2)
       (let ([test (Expr e0 #f)])
        (nanopass-case (Lsrc Expr) test
@@ -400,7 +478,7 @@
           (nanopass-case (Lsrc CaseLambdaClause) cl
            [(clause (,x* ...) ,interface ,body)
             (with-output-language (Lsrc CaseLambdaClause)
-             `(clause (,x* ...) ,interface ,(Expr body #t)))])) cl*) ...)]
+             `(clause (,x* ...) ,interface ,(fluid-let ([tail-k '()]) (Expr body #t))))])) cl*) ...)]
      [(call ,preinfo1 (ref ,maybe-src ,x) ,e* ...)
       (guard (not (eq? helper-mode 'off)))
       (or (helper-call x e* p rtd fields visit fail)
@@ -710,6 +788,10 @@
 
   (define-pass transform : Lsrc (ir) -> Lsrc ()
    (Expr : Expr (ir) -> Expr ()
+    [(call ,preinfo ,pr ,[e*] ...)
+     (guard (and library-mode (eq? (primref-name pr) '$record)))
+     (set! library-active? #t)
+     `(call ,preinfo ,pr ,e* ...)]
     [(case-lambda ,preinfo ,cl* ...)
      `(case-lambda ,preinfo
        ,(map (lambda (cl)
@@ -758,7 +840,11 @@
      (set-prelex-referenced! x #t) ir]))
   (lambda (x)
    (if (enable-scalar-replacement)
-    (fluid-let ([cost-mode (let ([v (getenv "CHEZ_SRA_COST")]) (and (member v '("guard" "cache" "bounded")) v))]
+    (fluid-let ([library-active? (not (equal? (getenv "CHEZ_SRA_DEMAND") "1"))]
+                [verify-shapes? (getenv "CHEZ_SRA_SHAPE_VERIFY")]
+                [optional-shapes (make-eq-hashtable)]
+                [library-mode (equal? (getenv "CHEZ_SRA_LIBRARY") "1")]
+                [cost-mode (let ([v (getenv "CHEZ_SRA_COST")]) (and (member v '("guard" "cache" "bounded")) v))]
                 [size-cache (make-eq-hashtable)] [validity-cache (make-eq-hashtable)]
                 [region-mode (let ([s (getenv "CHEZ_SRA_REGION_CP0")]) (and (member s '("scope" "scope2" "types")) s))]
                 [region-marks (make-eq-hashtable)] [region-trials 0] [region-commits 0]
