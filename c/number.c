@@ -63,7 +63,7 @@ static ptr big_logxor(ptr tc, ptr x, ptr y, iptr xl, iptr yl, IBOOL xs, IBOOL ys
   ibigit _i_ = x;\
   PREPARE_BIGNUM(tc, B, 1)\
   *cnt = 1;\
-  BIGIT(B,0) = (*sign = (_i_ < 0)) ? -_i_ : _i_;\
+  BIGIT(B,0) = (*sign = (_i_ < 0)) ? (bigit)0 - (bigit)_i_ : (bigit)_i_;\
 }
 
 #define UBIGIT_TO_BIGNUM(tc,B,u,cnt) {\
@@ -75,7 +75,7 @@ static ptr big_logxor(ptr tc, ptr x, ptr y, iptr xl, iptr yl, IBOOL xs, IBOOL ys
 #define IBIGITBIGIT_TO_BIGNUM(tc,B,x,cnt,sign) {\
   ibigitbigit _i_ = x; bigitbigit _u_; bigitbigit _b_;\
   PREPARE_BIGNUM(tc, B, 2)\
-  _u_ = (*sign = (_i_ < 0)) ? -_i_ : _i_;\
+  _u_ = (*sign = (_i_ < 0)) ? (bigitbigit)0 - (bigitbigit)_i_ : (bigitbigit)_i_;\
   if ((_b_ = (_u_ & (bigitbigit)bigit_mask)) == _u_) {\
     *cnt = 1;\
     BIGIT(B,0) = (bigit)_u_;\
