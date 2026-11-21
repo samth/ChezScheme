@@ -914,9 +914,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         }
         case fasl_type_base_rtd: {
             ptr rtd;
-            if ((rtd = S_G.base_rtd) == Sfalse) {
-              if (!Srecordp(rtd)) S_error_abort("S_G.base-rtd has not been set");
-            }
+            if (!Srecordp(rtd = S_G.base_rtd))
+              S_error_abort("S_G.base-rtd has not been set");
             *x = rtd;
             return;
         } case fasl_type_rtd: {
