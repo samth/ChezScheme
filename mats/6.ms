@@ -4032,3 +4032,33 @@
                         (display "read\n")))
                    "malformed vfasl header")))))))
   )
+
+(mat vfasl-code-length-past-space ; catalog 045
+  ;; a vfasl code object whose length runs past the code space is rejected
+  (let ([w (foreign-sizeof 'ptr)])
+    (parameterize ([fasl-compressed #f])
+      (compile-to-file '((lambda (x) (+ x 1))) "testfile-045.so")
+      (vfasl-convert-file "testfile-045.so" "testfile-045.vfasl" #f))
+    (let ([bv (call-with-port (open-file-input-port "testfile-045.vfasl") get-bytevector-all)])
+      (let-values ([(size i) ($fm-get-uptr bv (+ $fm-situation-end 1))])
+        ;; header words: data size, table size, result offset, the offsets
+        ;; of spaces 1 to 8 (code is space 6), then three reference counts;
+        ;; the data follows the header
+        (let* ([hdr (+ i 2)]
+               [word (lambda (k) (bytevector-uint-ref bv (+ hdr (* k w)) (native-endianness) w))]
+               [data (+ hdr (* 14 w))]
+               [code (+ data (word 8))])
+          (and (= (bytevector-u8-ref bv (+ i 1)) 101) ; vfasl
+               (< (word 8) (word 9))                  ; a code object
+               (begin
+                 ;; the code object's length, the word after its header
+                 (bytevector-uint-set! bv (+ code w) (expt 2 40) (native-endianness) w)
+                 (call-with-port (open-file-output-port "testfile-045b.vfasl" (file-options replace))
+                   (lambda (p) (put-bytevector p bv)))
+                 ($catalog-contains?
+                   ($catalog-child-output
+                     '(guard (c [#t (display-condition c) (newline)])
+                        (call-with-port (open-file-input-port "testfile-045b.vfasl") fasl-read)
+                        (display "read\n")))
+                   "malformed vfasl code object")))))))
+  )
