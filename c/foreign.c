@@ -91,7 +91,7 @@ static iptr symhash(const char *s) {
   uptr n, h;
 
   h = n = strlen(s);
-  while (n--) h = h * multiplier + *s++;
+  while (n--) h = h * multiplier + *(const unsigned char *)s++;
   return (h & 0x7fffffff) % buckets;
 }
 
