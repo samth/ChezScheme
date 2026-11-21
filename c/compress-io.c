@@ -511,8 +511,11 @@ static INT glzemit_lz4(lz4File_out *lz4, void *buffer, UINT count) {
     else if (errno == EINTR)
       continue;
 #endif
-    else
+    else {
+      /* record the failure, so that the caller's error check sees it */
+      lz4->err = Z_ERRNO;
       break;
+    }
   }
 
   return r;
@@ -529,8 +532,13 @@ static INT glzwrite_lz4(lz4File_out *lz4, void *buffer, UINT count) {
   } else {
     memcpy(lz4->in_buffer + lz4->in_pos, buffer, amt);
     if ((lz4->in_pos += amt) == LZ4_OUTPUT_PORT_IN_BUFFER_SIZE) {
+      /* empty the buffer only once its bytes are written; on failure,
+         this call's bytes are not taken and the earlier ones stay */
+      if ((r = glzemit_lz4(lz4, lz4->in_buffer, LZ4_OUTPUT_PORT_IN_BUFFER_SIZE)) < 0) {
+        lz4->in_pos -= amt;
+        return 0;
+      }
       lz4->in_pos = 0;
-      if ((r = glzemit_lz4(lz4, lz4->in_buffer, LZ4_OUTPUT_PORT_IN_BUFFER_SIZE)) < 0) return 0;
     }
   }
 
