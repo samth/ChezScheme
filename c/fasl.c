@@ -506,7 +506,7 @@ static ptr fasl_entry(ptr tc, IFASLCODE situation, faslFile f, ptr externals) {
           x = S_vfasl(bv, in_f, 0, size);
           break;
         default:
-          S_error2("", "malformed fasl-object header (got ~s) found in ~a", FIX(ty), f->uf.path);
+          S_error2("", "malformed fasl-object header (got ~s) found in ~a", FIX(kind), f->uf.path);
           return (ptr)0;
       }
       if (old_mode == FASL_BUFFER_READ_MINIMAL)
