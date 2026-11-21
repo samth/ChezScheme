@@ -832,16 +832,32 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             *x = S_uninterned(str);
             return;
         }
-        case fasl_type_ratnum:
+        case fasl_type_ratnum: {
+            ptr num, den;
             *x = S_rational(FIX(0), FIX(0));
             faslin(tc, &RATNUM(*x), t, pstrbuf, f);
             faslin(tc, &RATDEN(*x), t, pstrbuf, f);
+            /* a ratnum is an integer over an integer above 1, in lowest terms */
+            num = RATNUM(*x); den = RATDEN(*x);
+            if (!(Sfixnump(num) || Sbignump(num))
+                || !(Sfixnump(den) ? UNFIX(den) > 1 : (Sbignump(den) && !BIGSIGN(den)))
+                || S_gcd(num, den) != FIX(1))
+              S_error1("", "malformed fasl ratnum found in ~a", f->uf.path);
             return;
-        case fasl_type_exactnum:
+        }
+        case fasl_type_exactnum: {
+            ptr rp, ip;
             *x = S_exactnum(FIX(0), FIX(0));
             faslin(tc, &EXACTNUM_REAL_PART(*x), t, pstrbuf, f);
             faslin(tc, &EXACTNUM_IMAG_PART(*x), t, pstrbuf, f);
+            /* both parts exact rationals, and the imaginary part not zero */
+            rp = EXACTNUM_REAL_PART(*x); ip = EXACTNUM_IMAG_PART(*x);
+            if (!(Sfixnump(rp) || Sbignump(rp) || Sratnump(rp))
+                || !(Sfixnump(ip) || Sbignump(ip) || Sratnump(ip))
+                || ip == FIX(0))
+              S_error1("", "malformed fasl exactnum found in ~a", f->uf.path);
             return;
+        }
         case fasl_type_vector:
         case fasl_type_immutable_vector: {
             iptr n; ptr *p;
