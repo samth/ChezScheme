@@ -5738,3 +5738,12 @@
           (close-port err)
           (and (string? out) ($catalog-contains? out "reported")))))
   )
+
+(mat fixed-path-null ; catalog 039
+  ;; a null path is an error, not a memory fault
+  (guard (c [#t (not ($catalog-contains?
+                       (with-output-to-string (lambda () (display-condition c)))
+                       "invalid memory reference"))])
+    (#2%$fixed-path? #f)
+    #f)
+  )
