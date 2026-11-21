@@ -1185,9 +1185,15 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             }
             return;
         }
-        case fasl_type_immediate:
-            *x = (ptr)uptrin(f);
+        case fasl_type_immediate: {
+            /* only a fixnum or an immediate: a word with a pointer's tag
+               would be an object the stream forged */
+            ptr v = (ptr)uptrin(f);
+            if (!FIXMEDIATE(v))
+              S_error1("", "invalid fasl immediate found in ~a", f->uf.path);
+            *x = v;
             return;
+        }
         case fasl_type_entry:
             *x = (ptr)S_lookup_c_entry(uptrin(f));
             return;
