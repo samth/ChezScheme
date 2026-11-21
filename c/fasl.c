@@ -1130,6 +1130,16 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             t = S_bignum(tc, n, sign);
             p = &BIGIT(t, 0);
             while (--n >= 0) *p++ = (bigit)uptrin(f);
+            if (BIGIT(t, 0) == 0) {
+              /* the writer never puts a leading zero digit, but a bignum
+                 must not have one, so drop any */
+              iptr z, len = BIGLEN(t); ptr t2;
+              for (z = 1; z < len && BIGIT(t, z) == 0; z += 1);
+              if (z == len) { *x = FIX(0); return; }
+              t2 = S_bignum(tc, len - z, sign);
+              memcpy(&BIGIT(t2, 0), &BIGIT(t, z), (len - z) * sizeof(bigit));
+              t = t2;
+            }
             *x = S_normalize_bignum(t);
             return;
         }
