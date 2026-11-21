@@ -2653,7 +2653,10 @@ static void resweep_dirty_weak_pairs(thread_gc *tgc) {
                 if (!FIXMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
                   if (si->old_space) {
                     if (new_marked(si, p)) {
-                      youngest = TARGET_GENERATION(si);
+                      /* a minimum, as in the other arms: the card's cdrs and
+                         earlier cars may be younger (catalog 055) */
+                      IGEN newpg = TARGET_GENERATION(si);
+                      if (newpg < youngest) youngest = newpg;
                     } else if (FORWARDEDP(p, si)) {
                       IGEN newpg;
                       *pp = GET_FWDADDRESS(p);
