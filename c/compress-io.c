@@ -540,8 +540,23 @@ static INT glzwrite_lz4(lz4File_out *lz4, void *buffer, UINT count) {
 
 INT S_glzwrite(glzFile glz, void *buffer, UINT count) {
   switch (glz->format) {
-    case COMPRESS_GZIP:
-      return gzwrite(glz->gz, buffer, count);
+    case COMPRESS_GZIP: {
+      z_off_t before = gztell(glz->gz);
+      INT r = gzwrite(glz->gz, buffer, count);
+      if (r == 0 && count > 0 && before >= 0) {
+        /* when a write(2) fails (with EINTR, say) after zlib has already
+           taken bytes of `buffer`, gzwrite answers 0 although its
+           position has moved past them, and writing the same bytes
+           again would compress them twice; report them as written, and
+           let the next call meet the error again if it persists */
+        z_off_t moved = gztell(glz->gz) - before;
+        if (moved > 0) {
+          gzclearerr(glz->gz);
+          return (INT)moved;
+        }
+      }
+      return r;
+    }
     case COMPRESS_LZ4:
       return glzwrite_lz4(glz->lz4_out, buffer, count);
     default:
