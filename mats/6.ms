@@ -3871,3 +3871,13 @@
   (let ([h ($fm-read ($fm-node '(u8 32) '(u8 0) '(u8 0) '(u8 0) '(u8 1) '(u8 1) `(object ,(expt 2 50)) '(object 0)))])
     (and (hashtable? h) (= (hashtable-size h) 1)))
   )
+
+(mat fasl-malformed-immediates ; catalogs 020, 023, 024
+  ;; an rtd uid, a symbol-hashtable key and a code name read as {immediate}
+  ;; words that are not immediates
+  ($fm-rejects? ($fm-node '(u8 25) '(u8 12) `(uptr ,(expt 2 40)) '(u8 0)))
+  ($fm-rejects? ($fm-node '(u8 33) '(u8 0) '(u8 0) '(u8 0) '(u8 1) '(u8 1) '(u8 12) '(u8 0) '(object 0)))
+  ($fm-rejects? ($fm-node '(u8 11) '(u8 0) '(uptr 0) '(uptr 8)
+                  '(u8 12) `(uptr #x4000000000000007) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
+                  '(zeros 8) '(uptr 0)))
+  )
