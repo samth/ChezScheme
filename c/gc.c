@@ -512,6 +512,13 @@ uptr list_length(ptr ls) {
 
 #define marked(si, p) (si->marked_mask && (si->marked_mask[segment_bitmap_byte(p)] & segment_bitmap_bit(p)))
 
+/* set the mark bit of a flonum inside a marked inexactnum, whose field
+   is at `addr` (catalog 075) */
+#define MARK_INEXACTNUM_PART(si, addr) do {                        \
+    ptr part_p = TYPE(TO_PTR(addr), type_flonum);                  \
+    (si)->marked_mask[segment_bitmap_byte(part_p)] |= segment_bitmap_bit(part_p); \
+  } while (0)
+
 #ifdef NO_NEWSPACE_MARKS
 # define new_marked(si, p) 0
 # define CAN_MARK_AND(x) 0
@@ -1097,6 +1104,11 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
            if (!si->marked_mask)
              init_mask(tgc, si->marked_mask, tg, 0);
            si->marked_mask[segment_bitmap_byte(p)] |= segment_bitmap_bit(p);
+           if (Sinexactnump(p)) {
+             /* and its parts, which `real-part` and `imag-part` answer (catalog 075) */
+             MARK_INEXACTNUM_PART(si, &INEXACTNUM_REAL_PART(p));
+             MARK_INEXACTNUM_PART(si, &INEXACTNUM_IMAG_PART(p));
+           }
          }
        }
      }

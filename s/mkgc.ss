@@ -544,7 +544,17 @@
       (copy-type inexactnum-type)
       (copy-flonum* inexactnum-real)
       (copy-flonum* inexactnum-imag)
-      (count countof-inexactnum)]
+      (as-mark-end
+       (case-mode
+        [(mark)
+         ;; `real-part` and `imag-part` answer flonums inside the number;
+         ;; mark them with it, so that a part reached on its own is left
+         ;; in place, not copied with its forwarding address stored over
+         ;; the marked number's field (catalog 075)
+         (mark-inexactnum-part (& (inexactnum-real _)))
+         (mark-inexactnum-part (& (inexactnum-imag _)))]
+        [else])
+       (count countof-inexactnum))]
 
      [bignum
       (space space-data)
@@ -895,6 +905,9 @@
             (set! index -= 1)
             (set! mask (bignum-data num index))
             (set! bits bigit_bits)))]))]))
+
+(define-trace-macro (mark-inexactnum-part addr)
+  (MARK_INEXACTNUM_PART si addr))
 
 (define-trace-macro (trace-record-type-pm num rtd)
   ;; Bignum pointer mask may need forwarding
