@@ -25,19 +25,43 @@ static ptr S_call(ptr tc, ptr cp, iptr argcnt);
 
 /* Sinteger64_value is in number.c */
 
+/* A barriered store into an older generation is safe only where the
+   collector's dirty sweep can visit it: an immutable box or vector that
+   the collector has promoted lives in space_pure, and a store there makes
+   the next collection abort in sweep_dirty (catalog 066).  Refuse such a
+   store with "~s is not mutable", as the verified setters
+   (Chez.Misc.Setters, barrier_ok) do. */
+static void check_barrier_ok(ptr x, ptr *loc) {
+  seginfo *si = MaybeSegInfo(addr_get_segment(TO_PTR(loc)));
+  ISPC s;
+  if (si == NULL || si->generation == 0) return;
+  s = si->space;
+  if (s == space_new || s == space_impure || s == space_symbol || s == space_port
+      || s == space_weakpair || s == space_ephemeron || s == space_impure_record
+      || s == space_impure_typed_object || s == space_closure
+      || s == space_immobile_impure || s == space_count_impure
+      || s == space_reference_array)
+    return;
+  S_error1("", "~s is not mutable", x);
+}
+
 void Sset_box(ptr x, ptr y) {
+    check_barrier_ok(x, &INITBOXREF(x));
     SETBOXREF(x, y);
 }
 
 void Sset_car(ptr x, ptr y) {
+    check_barrier_ok(x, &INITCAR(x));
     SETCAR(x, y);
 }
 
 void Sset_cdr(ptr x, ptr y) {
+    check_barrier_ok(x, &INITCDR(x));
     SETCDR(x, y);
 }
 
 void Svector_set(ptr x, iptr i, ptr y) {
+    check_barrier_ok(x, &INITVECTIT(x, i));
     SETVECTIT(x, i, y);
 }
 
