@@ -238,15 +238,18 @@ static IBOOL memqp(ptr x, ptr ls) {
   }
 }
 
-static IBOOL remove_first_nomorep(ptr x, ptr *pls, IBOOL look) {
+/* *found tells whether x was on the list (NULL when not wanted) */
+static IBOOL remove_first_nomorep(ptr x, ptr *pls, IBOOL look, IBOOL *found) {
   ptr ls;
 
+  if (found != NULL) *found = 0;
   for (;;) {
     ls = *pls;
     if (ls == Snil) break;
     if (Scar(ls) == x) {
       ls = Scdr(ls);
       *pls = ls;
+      if (found != NULL) *found = 1;
       if (look) return !memqp(x, ls);
       break;
     }
@@ -313,7 +316,7 @@ void Slock_object(ptr x) {
     if (S_G.enable_object_counts) {
       if (g != 0) S_G.countof[g][countof_pair] += 1;
     }
-    (void)remove_first_nomorep(x, &S_G.unlocked_objects[g], 0);
+    (void)remove_first_nomorep(x, &S_G.unlocked_objects[g], 0, NULL);
     THREAD_GC(tc)->during_alloc -= 1;
     tc_mutex_release();
   }
@@ -325,18 +328,21 @@ void Sunlock_object(ptr x) {
   if (!FIXMEDIATE(x) && (si = MaybeSegInfo(ptr_get_segment(x))) != NULL && (g = si->generation) != static_generation) {
     ptr tc = get_thread_context();
     tc_mutex_acquire();
+    IBOOL found;
     THREAD_GC(tc)->during_alloc += 1;
-    /* mobilize, if we haven't lost track */
-    if (si->must_mark < MUST_MARK_INFINITY)
-      --si->must_mark;
    /* remove first occurrence of x from locked list. if there are no
       others, add x to unlocked list */
-    if (remove_first_nomorep(x, &S_G.locked_objects[g], (si->space == space_new) && (si->generation > 0))) {
+    if (remove_first_nomorep(x, &S_G.locked_objects[g], (si->space == space_new) && (si->generation > 0), &found)) {
       S_G.unlocked_objects[g] = S_cons_in(tc, (g == 0 ? space_new : space_impure), g, x, S_G.unlocked_objects[g]);
       if (S_G.enable_object_counts) {
         if (g != 0) S_G.countof[g][countof_pair] += 1;
       }
     }
+    /* mobilize, if we haven't lost track, and only for a lock x held:
+       unlocking an object that is not locked must leave the segment's
+       count, which other objects' locks hold, alone (catalog 057) */
+    if (found && si->must_mark < MUST_MARK_INFINITY)
+      --si->must_mark;
     THREAD_GC(tc)->during_alloc -= 1;
     tc_mutex_release();
   }
