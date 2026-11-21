@@ -986,6 +986,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             veclen = sizein(f);
             INITPTRFIELD(ht,eq_hashtable_vec_disp) = v = S_vector(veclen);
             n = sizein(f);
+            if (n > 0 && veclen == 0)
+              S_error1("", "malformed fasl hashtable (entries and no buckets) found in ~a", f->uf.path);
             INITPTRFIELD(ht,eq_hashtable_size_disp) = FIX(n);
             for (i = 0; i < veclen ; i += 1) { INITVECTIT(v, i) = FIX(i); }
             while (n > 0) {
@@ -1056,6 +1058,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             veclen = sizein(f);
             INITPTRFIELD(ht,symbol_hashtable_vec_disp) = v = S_vector(veclen);
             n = sizein(f);
+            if (n > 0 && veclen == 0)
+              S_error1("", "malformed fasl hashtable (entries and no buckets) found in ~a", f->uf.path);
             INITPTRFIELD(ht,symbol_hashtable_size_disp) = FIX(n);
             for (i = 0; i < veclen ; i += 1) { INITVECTIT(v, i) = Snil; }
             while (n > 0) {
