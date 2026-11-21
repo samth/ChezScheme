@@ -115,6 +115,11 @@ ptr S_vfasl(ptr bv, faslFile stream, iptr offset, iptr input_len)
   else
     S_fasl_bytesin(header_space, size_vfasl_header, stream);
 
+  /* the two sizes are words of the image: bound each before the sum,
+     which could otherwise wrap past input_len */
+  if ((VFASLHEADER_DATA_SIZE(header) > (uptr)input_len)
+      || (VFASLHEADER_TABLE_SIZE(header) > (uptr)input_len))
+    S_error("fasl-read", "input length mismatch");
   used_len += VFASLHEADER_DATA_SIZE(header) + VFASLHEADER_TABLE_SIZE(header);
   if (used_len > input_len)
     S_error("fasl-read", "input length mismatch");
@@ -124,6 +129,23 @@ ptr S_vfasl(ptr bv, faslFile stream, iptr offset, iptr input_len)
     vspace_offsets[s] = VFASLHEADER_VSPACE_REL_OFFSETS(header, s-1);
   }
   vspace_offsets[vspaces_count] = VFASLHEADER_DATA_SIZE(header);
+
+  /* The space walk below requires the offsets sorted, and each space's
+     size is a difference of neighbors, which a decreasing pair would
+     wrap into a huge byte count.  The reference counts must fit the
+     table the header sizes, or the reference arrays and the bitmap run
+     past it.  The writer produces both. */
+  for (s = 0; s < vspaces_count; s++) {
+    if (vspace_offsets[s] > vspace_offsets[s+1])
+      S_error("fasl-read", "malformed vfasl header");
+  }
+  {
+    uptr cap = VFASLHEADER_TABLE_SIZE(header) / sizeof(vfoff);
+    uptr n1 = VFASLHEADER_SYMREF_COUNT(header), n2 = VFASLHEADER_RTDREF_COUNT(header),
+         n3 = VFASLHEADER_SINGLETONREF_COUNT(header);
+    if (n1 > cap || n2 > cap - n1 || n3 > cap - n1 - n2)
+      S_error("fasl-read", "malformed vfasl header");
+  }
 
   bv_addr = (bv ? &BVIT(bv, size_vfasl_header + offset) : NULL);
 
@@ -212,8 +234,14 @@ ptr S_vfasl(ptr bv, faslFile stream, iptr offset, iptr input_len)
   int s2 = 0;                                   \
   uptr offset2 = vspace_offsets[s2];            \
   uptr next_offset2 = vspace_offsets[s2+1]
+/* an offset read from the image must be at or past the current
+   space's start and inside the data, or the walk runs past the
+   offsets table and the pointer lands outside the spaces */
 #define INC_SPACE_OFFSET(off)                   \
   do {                                          \
+    if (((uptr)(off) < offset2)                 \
+        || ((uptr)(off) >= vspace_offsets[vspaces_count])) \
+      S_error("fasl-read", "malformed vfasl reference"); \
     while ((off) >= next_offset2) {             \
       s2++;                                     \
       offset2 = next_offset2;                   \
