@@ -3941,3 +3941,8 @@
   (eqv? ($fm-read ($fm-node '(u8 10) '(u8 0) '(uptr 3) '(uptr 0) '(uptr 0) '(uptr 5))) 5)
   (eqv? ($fm-read ($fm-node '(u8 10) '(u8 0) '(uptr 3) '(uptr 0) '(uptr 0) '(uptr 0))) 0)
   )
+
+(mat fasl-malformed-graph-ref ; catalog 040
+  ;; a reference to a graph slot nothing defined
+  ($fm-rejects? ($fm-node '(u8 16) '(uptr 64) '(uptr 0) '(u8 18) '(uptr 42)))
+  )
