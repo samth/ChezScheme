@@ -5894,3 +5894,19 @@
       (and (c-ref rb)
            (andmap (lambda (k) (not (c-ref (+ a k)))) '(0 1 2 3)))))
   )
+
+(mat S_protect-table-full ; catalog 074
+  ;; S_protect stops when its table is full, before storing past its end
+  ($catalog-contains?
+    ($catalog-child-output
+      '(load-shared-object #f)
+      '(let ([protect (foreign-procedure "S_protect" (uptr) void)])
+         (let loop ([i 0])
+           (when (< i 200)
+             (let ([cell (foreign-alloc 8)])
+               (foreign-set! 'iptr cell 0 0)
+               (protect cell)
+               (collect)
+               (loop (+ i 1)))))))
+    "max_protected constant too small")
+  )
