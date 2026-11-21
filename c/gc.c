@@ -2488,6 +2488,9 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
                     while ((si = MaybeSegInfo(j)) != NULL &&
                            si->space == s &&
                            si->generation == from_g &&
+                           /* no record of the older group starts in a
+                              collected segment (catalog 079) */
+                           !si->old_space &&
                            !si->marked_mask)
                       j -= 1;
                     j += 1;
