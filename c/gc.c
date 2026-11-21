@@ -1413,7 +1413,11 @@ ptr GCENTRY(ptr tc, ptr count_roots_ls) {
                     pend_hold_ls = ls;
                   } else {
                     seginfo *si;
-                    if (!FIXMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space) {
+                    /* a representative the collection has already forwarded or
+                       marked was swept by the fixpoint; its old words are no
+                       longer an object's (catalog 072) */
+                    if (!FIXMEDIATE(rep) && (si = MaybeSegInfo(ptr_get_segment(rep))) != NULL && si->old_space
+                        && !FORWARDEDP(rep, si) && !new_marked(si, rep)) {
                       /* mark things reachable from `rep`, but not `rep` itself, unless
                          `rep` is immediately reachable from itself */
                       PUSH_BACKREFERENCE(ls)
