@@ -3977,3 +3977,11 @@
                #f #f #f)])
     (guard (c [#t ($fm-error-ok? c)]) (fasl-read ip) #f))
   )
+
+(mat fasl-malformed-ratnum ; catalog 036
+  ($fm-rejects? ($fm-node '(u8 3) '(u8 26) '(u8 4) '(u8 26) '(u8 0)))        ; 2/0
+  ($fm-rejects? ($fm-node '(u8 3) '(u8 26) '(u8 8) '(u8 26) '(u8 4)))        ; 4/2, not in lowest terms
+  ($fm-rejects? ($fm-node '(u8 3) '(u8 26) '(u8 4) '(object 2.0)))           ; 2/2.0
+  ($fm-rejects? ($fm-node '(u8 20) '(u8 26) '(u8 2) '(u8 26) '(u8 0)))       ; 1+0i as an exactnum
+  (eqv? ($fm-read ($fm-node '(u8 3) '(u8 26) '(u8 4) '(u8 26) '(u8 6))) 2/3)
+  )
