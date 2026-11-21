@@ -276,9 +276,9 @@ void S_call_help(ptr tc_in, IBOOL singlep, IBOOL lock_ts) {
             break;
         case 1: { /* normal return */
             ptr yp = FRAME(tc, 1);
-            CCHAIN(tc) = yp;
             {
-              /* unlock code objects that we're escaping past */
+              /* unlock code objects that we're escaping past: the entries
+                 above yp in the chain S_return left (catalog 056) */
               ptr xp;
               for (xp = CCHAIN(tc); ; xp = Scdr(xp)) {
                 ptr p = CDAR(xp);
