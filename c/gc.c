@@ -198,6 +198,7 @@ static IGEN copy(thread_gc *tgc, ptr pp, seginfo *si, ptr *dest);
 static IGEN mark_object(thread_gc *tgc, ptr pp, seginfo *si);
 static void sweep(thread_gc *tgc, ptr p, IGEN from_g);
 static void sweep_in_old(thread_gc *tgc, ptr p);
+static IGEN sweep_dirty_reference_arrays(thread_gc *tgc, seginfo *dirty_si, ptr *pp, ptr *ppend, IGEN youngest);
 static void sweep_object_in_old(thread_gc *tgc, ptr p);
 static IBOOL object_directly_refers_to_self(ptr p);
 static ptr copy_stack(thread_gc *tgc, ptr old, iptr *length, iptr clength);
@@ -2245,6 +2246,65 @@ static void setup_sweep_dirty(NO_PARALLEL_UNUSED thread_gc *tgc) {
 #endif
 }
 
+/* Sweep the references in [pp, ppend), a dirty card of a reference-array
+   segment, object by object.  An object that spans segments starts at the
+   beginning of a segment and its segments share space, generation and
+   marking, so the first object overlapping the card starts either within
+   the card's segment or at the start of an earlier segment of the same
+   kind (catalogs 054, 061). */
+static IGEN sweep_dirty_reference_arrays(thread_gc *tgc, seginfo *dirty_si, ptr *pp, ptr *ppend, IGEN youngest) {
+  uptr seg = dirty_si->number, j;
+  seginfo *si;
+  ptr p, pnext;
+
+  /* find the first segment of the group of like segments */
+  j = seg - 1;
+  while ((si = MaybeSegInfo(j)) != NULL &&
+         si->space == space_reference_array &&
+         si->generation == dirty_si->generation &&
+         !si->old_space &&
+         (si->marked_mask == NULL) == (dirty_si->marked_mask == NULL))
+    j -= 1;
+  j += 1;
+
+  /* find the first object that reaches segment seg */
+  for (;;) {
+    p = TYPE(build_ptr(j, 0), type_typed_object);
+    if (j == seg || FWDMARKER(p) == forward_marker) {
+      /* no object from segment j reaches seg */
+      if (j == seg) break;
+      j += 1;
+      continue;
+    }
+    pnext = (ptr)((uptr)p + size_bytevector(Sbytevector_length(p)));
+    if (ptr_get_segment(pnext) >= seg) break;
+    j = ptr_get_segment(pnext) + 1;
+  }
+
+  /* now sweep each object that overlaps the card */
+  while ((ptr *)TO_VOIDP(UNTYPE(p, type_typed_object)) < ppend) {
+    ptr *wp, *wend;
+    if (FWDMARKER(p) == forward_marker) break; /* end of the allocated area */
+    pnext = (ptr)((uptr)p + size_bytevector(Sbytevector_length(p)));
+    if ((ptr *)TO_VOIDP(UNTYPE(pnext, type_typed_object)) > pp
+        && (!dirty_si->marked_mask || marked(SegInfo(ptr_get_segment(p)), p))) {
+      wp = (ptr *)TO_VOIDP(&BVIT(p, 0));
+      wend = wp + Sbytevector_reference_length(p);
+      if (wp < pp) wp = pp;
+      if (wend > ppend) wend = ppend;
+      if (wp < wend) {
+        FLUSH_REMOTE_BLOCK
+        for (; wp < wend; wp += 1)
+          relocate_reference_dirty(wp, youngest);
+        FLUSH_REMOTE(tgc, p); /* the object's own sweep traces only its references */
+      }
+    }
+    p = pnext;
+  }
+
+  return youngest;
+}
+
 static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
   IGEN youngest, min_youngest;
   ptr *pp, *ppn, *ppend, *nl, start;
@@ -2546,32 +2606,11 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
                     pp += size_ephemeron / sizeof(ptr);
                   }
                 } else if (s == space_reference_array) {
-                  /* the same as space_impure and others above, but for object references */
-                  if (dirty_si->marked_mask) {
-                    while (pp < ppend) {
-                      /* handle two pointers at a time */
-                      if (marked(dirty_si, TO_PTR(pp))) {
-                        FLUSH_REMOTE_BLOCK
-                        relocate_reference_dirty(pp, youngest);
-                        ppn = pp + 1;
-                        relocate_reference_dirty(ppn, youngest);
-                        FLUSH_REMOTE(tgc, TYPE(TO_PTR(pp), type_pair)); /* can treat as a pair for resweep */
-                        pp = ppn + 1;
-                      } else {
-                        pp += 2;
-                      }
-                    }
-                  } else {
-                    while (pp < ppend && *pp != forward_marker) {
-                      /* handle two pointers at a time */
-                      FLUSH_REMOTE_BLOCK
-                      relocate_reference_dirty(pp, youngest);
-                      ppn = pp + 1;
-                      relocate_reference_dirty(ppn, youngest);
-                      FLUSH_REMOTE(tgc, TYPE(TO_PTR(pp), type_pair));
-                      pp = ppn + 1;
-                    }
-                  }
+                  /* Walk by object, as the full sweep does: only a reference
+                     bytevector's whole words are references.  Its trailing
+                     partial word is data (catalog 054), and any word may
+                     hold a value equal to forward_marker (catalog 061). */
+                  youngest = sweep_dirty_reference_arrays(tgc, dirty_si, pp, ppend, youngest);
                 } else {
                   S_error_abort("sweep_dirty(gc): unexpected space");
                 }
