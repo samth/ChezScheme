@@ -95,7 +95,7 @@ void S_alloc_init(void) {
 }
 
 void S_protect(ptr *p) {
-    if (S_G.protect_next > max_protected)
+    if (S_G.protect_next >= max_protected) /* the table is full (catalog 074) */
         S_error_abort("max_protected constant too small");
     *p = snil;
     S_G.protected[S_G.protect_next++] = p;
