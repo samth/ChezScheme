@@ -1163,7 +1163,9 @@ void S_phantom_bytevector_adjust(ptr ph, uptr new_sz) {
   g = si->generation;
 
   S_G.bytesof[g][countof_phantom] += (new_sz - old_sz);
+  alloc_mutex_acquire();
   S_adjustmembytes(new_sz - old_sz);
+  alloc_mutex_release();
   PHANTOMLEN(ph) = new_sz;
 
   maybe_queue_fire_collector(THREAD_GC(tc));

@@ -485,16 +485,30 @@ void S_free_chunks(void) {
   }
 }
 
+/* membytes and maxmembytes belong to the allocation mutex: S_getmem and
+   S_freemem run under it (or with the other threads stopped for a
+   collection), and so must every other reader and writer (catalog 048) */
+
 uptr S_curmembytes(void) {
-  return membytes;
+  uptr n;
+  alloc_mutex_acquire();
+  n = membytes;
+  alloc_mutex_release();
+  return n;
 }
 
 uptr S_maxmembytes(void) {
-  return maxmembytes;
+  uptr n;
+  alloc_mutex_acquire();
+  n = maxmembytes;
+  alloc_mutex_release();
+  return n;
 }
 
 void S_resetmaxmembytes(void) {
+  alloc_mutex_acquire();
   maxmembytes = membytes;
+  alloc_mutex_release();
 }
 
 void S_adjustmembytes(iptr amt) {
