@@ -2939,6 +2939,15 @@
     (error? (pseudo-random-generator-next! (make-pseudo-random-generator) (- (expt 2 100))))
     (error? (pseudo-random-generator-next! (make-pseudo-random-generator) 10.0))
 
+    ;; catalog 037: a field set out of range through record-mutator is refused
+    (let ([g (make-pseudo-random-generator)])
+      ((record-mutator (record-rtd g) 1) g 1e300)
+      (and (guard (c [#t #t]) (pseudo-random-generator-next! g 10) #f)
+           (guard (c [#t #t]) (pseudo-random-generator-next! g) #f)))
+    (let ([g (make-pseudo-random-generator)])
+      ((record-mutator (record-rtd g) 3) g +nan.0)
+      (guard (c [#t #t]) (pseudo-random-generator-next! g) #f))
+
     (error? (pseudo-random-generator-seed! 10 10))
     (error? (pseudo-random-generator-seed! (vector 1 2 3) 10))
     (error? (pseudo-random-generator-seed! (make-pseudo-random-generator) 10.0))
