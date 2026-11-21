@@ -3985,3 +3985,24 @@
   ($fm-rejects? ($fm-node '(u8 20) '(u8 26) '(u8 2) '(u8 26) '(u8 0)))       ; 1+0i as an exactnum
   (eqv? ($fm-read ($fm-node '(u8 3) '(u8 26) '(u8 4) '(u8 26) '(u8 6))) 2/3)
   )
+
+(mat vfasl-symbol-wrong-hash ; catalog 038
+  ;; a vfasl symbol is interned by its name, whatever hash the image says
+  (let ([sym 'catalog-vfasl-symbol-hash-038] [w (foreign-sizeof 'ptr)])
+    (call-with-port (open-file-output-port "testfile-038.so" (file-options replace))
+      (lambda (p) (fasl-write (list sym) p)))
+    (parameterize ([fasl-compressed #f])
+      (vfasl-convert-file "testfile-038.so" "testfile-038.vfasl" #f))
+    (let* ([bv (call-with-port (open-file-input-port "testfile-038.vfasl") get-bytevector-all)]
+           [fx (lambda (n) (* n (expt 2 (- (* 8 w) (fixnum-width)))))]
+           [h (#%$symbol-hash sym)]
+           [at (let loop ([i 0])
+                 (cond
+                   [(> (+ i w) (bytevector-length bv)) #f]
+                   [(= (bytevector-uint-ref bv i (native-endianness) w) (fx h)) i]
+                   [else (loop (+ i 1))]))])
+      (and at
+           (begin
+             (bytevector-uint-set! bv at (fx (if (= h 0) 1 (- h 1))) (native-endianness) w)
+             (eq? (car (fasl-read (open-bytevector-input-port bv))) sym)))))
+  )
