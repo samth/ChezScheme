@@ -1231,13 +1231,21 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             *x = S_phantom_bytevector(uptrin(f));
             return;
         case fasl_type_graph: {
+            /* a slot of the new table that no {graph-def} has filled yet
+               holds the table itself, which no fasl object can be */
             iptr len = sizein(f), len2 = sizein(f), tlen = Svector_length(t), i;
             ptr new_t = S_vector(len);
             if ((tlen < len2) && (len2 != 0)) /* allowing a vector when not needed helps with `load-compiled-from-port` */
               S_error3("", "incompatible fasl graph external vector length ~d (expected ~d) found in ~a", FIX(tlen), FIX(len2), f->uf.path);
             if (len2 > len) len2 = len;
-            for (i = 0; i < len2; i++)
-              INITVECTIT(new_t, i+(len-len2)) = Svector_ref(t, i);
+            for (i = 0; i < len - len2; i++)
+              INITVECTIT(new_t, i) = new_t;
+            for (i = 0; i < len2; i++) {
+              ptr v = Svector_ref(t, i);
+              if (v == t)
+                S_error1("", "invalid fasl graph external found in ~a", f->uf.path);
+              INITVECTIT(new_t, i+(len-len2)) = v;
+            }
             faslin(tc, x, new_t, pstrbuf, f);
             return;
         }
@@ -1253,7 +1261,7 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         }
         case fasl_type_graph_ref: {
             uptr i = uptrin(f);
-            if (i >= (uptr)Svector_length(t))
+            if (i >= (uptr)Svector_length(t) || Svector_ref(t, i) == t)
                 S_error1("", "invalid fasl graph ref index found in ~a", f->uf.path);
             *x = Svector_ref(t, i);
             return;
