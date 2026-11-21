@@ -1460,18 +1460,30 @@ int S_fasl_intern_rtd(ptr *x)
   return 0;
 }
 
-/* limited version for checking rtd fields */
-static IBOOL equalp(ptr x, ptr y) {
+/* limited version for checking rtd fields; `fuel` bounds the depth
+   of the recursion, a cdr counting as a level, and a comparison that
+   runs out of it answers false, so cyclic fields read from a fasl
+   stream end in an "incompatible record type" error instead of
+   recurring until the C stack overflows */
+#define EQUALP_FUEL 50000
+
+static IBOOL equalp_fuel(ptr x, ptr y, iptr fuel) {
   if (x == y) return 1;
-  if (Spairp(x)) return Spairp(y) && equalp(Scar(x), Scar(y)) && equalp(Scdr(x), Scdr(y));
+  if (fuel == 0) return 0;
+  fuel -= 1;
+  if (Spairp(x)) return Spairp(y) && equalp_fuel(Scar(x), Scar(y), fuel) && equalp_fuel(Scdr(x), Scdr(y), fuel);
   if (Svectorp(x)) {
     iptr n;
     if (!Svectorp(y)) return 0;
     if ((n = Svector_length(x)) != Svector_length(y)) return 0;
-    while (--n >= 0) if (!equalp(Svector_ref(x, n), Svector_ref(y, n))) return 0;
+    while (--n >= 0) if (!equalp_fuel(Svector_ref(x, n), Svector_ref(y, n), fuel)) return 0;
     return 1;
   }
   return Sbignump(x) && Sbignump(y) && S_big_eq(x, y);
+}
+
+static IBOOL equalp(ptr x, ptr y) {
+  return equalp_fuel(x, y, EQUALP_FUEL);
 }
 
 static IBOOL rtd_equiv(ptr x, ptr y) {
