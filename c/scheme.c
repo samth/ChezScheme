@@ -1147,6 +1147,12 @@ extern void Sregister_boot_file_bytes(const char *name,
 
   check_boot_file_state("Sregister_boot_file_bytes");
 
+  /* a negative len would put the stream's end before its start */
+  if (len < 0) {
+    fprintf(stderr, "error (Sregister_boot_file_bytes): negative length\n");
+    S_abnormal_exit();
+  }
+
   boot = malloc(sizeof(boot_desc));
 
   S_fasl_init_bytes(&boot->ffo.f, (ptr)0, data, len);
