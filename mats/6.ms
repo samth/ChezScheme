@@ -4006,3 +4006,29 @@
              (bytevector-uint-set! bv at (fx (if (= h 0) 1 (- h 1))) (native-endianness) w)
              (eq? (car (fasl-read (open-bytevector-input-port bv))) sym)))))
   )
+
+(mat vfasl-space-offsets-out-of-order ; catalog 041
+  ;; a vfasl header whose space offsets decrease is rejected
+  (let ([w (foreign-sizeof 'ptr)])
+    (call-with-port (open-file-output-port "testfile-041.so" (file-options replace))
+      (lambda (p) (fasl-write (list 'catalog-041 "str" 42) p)))
+    (parameterize ([fasl-compressed #f])
+      (vfasl-convert-file "testfile-041.so" "testfile-041.vfasl" #f))
+    (let ([bv (call-with-port (open-file-input-port "testfile-041.vfasl") get-bytevector-all)])
+      (let-values ([(size i) ($fm-get-uptr bv (+ $fm-situation-end 1))])
+        ;; header words: data size, table size, result offset, then the
+        ;; space offsets; make the first space offset exceed the second
+        (let* ([hdr (+ i 2)]
+               [word (lambda (k) (bytevector-uint-ref bv (+ hdr (* k w)) (native-endianness) w))])
+          (and (= (bytevector-u8-ref bv (+ i 1)) 101) ; vfasl
+               (begin
+                 (bytevector-uint-set! bv (+ hdr (* 3 w)) (+ (word 4) 1) (native-endianness) w)
+                 (call-with-port (open-file-output-port "testfile-041b.vfasl" (file-options replace))
+                   (lambda (p) (put-bytevector p bv)))
+                 ($catalog-contains?
+                   ($catalog-child-output
+                     '(guard (c [#t (display-condition c) (newline)])
+                        (call-with-port (open-file-input-port "testfile-041b.vfasl") fasl-read)
+                        (display "read\n")))
+                   "malformed vfasl header")))))))
+  )
