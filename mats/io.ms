@@ -5413,3 +5413,16 @@
           "0.00001016633744345556774")
   
   )
+
+(mat read-into-immutable-buffer ; catalog 059
+  (let ([bv (bytevector->immutable-bytevector (make-bytevector 4 0))])
+    (and (guard (c [#t #t]) (get-bytevector-n! (open-bytevector-input-port #vu8(1 2 3 4)) bv 0 4) #f)
+         (guard (c [#t #t]) (get-bytevector-some! (open-bytevector-input-port #vu8(1 2 3 4)) bv 0 4) #f)
+         (equal? bv #vu8(0 0 0 0))))
+  (let ([s (string->immutable-string (make-string 4 #\x))])
+    (and (guard (c [#t #t]) (get-string-n! (open-string-input-port "abcd") s 0 4) #f)
+         (guard (c [#t #t]) (get-string-some! (open-string-input-port "abcd") s 0 4) #f)
+         (guard (c [#t #t]) (block-read (open-string-input-port "abcd") s) #f)
+         (guard (c [#t #t]) (block-read (open-string-input-port "abcd") s 4) #f)
+         (equal? s "xxxx")))
+  )
