@@ -410,12 +410,12 @@ static seginfo *allocate_segments(uptr nreq, UNUSED IBOOL for_code) {
   addr = S_getmem(bytes, 0, for_code);
   debug(printf("allocate_segments addr = %p\n", addr))
 
-    base = addr_get_segment((uptr)TO_PTR(addr) + bytes_per_segment - 1);
-  /* if the base of the first segment is the same as the base of the chunk, and
-     the last segment isn't the last segment in memory (which could cause 'next' and 'end'
-     pointers to wrap), we've actually got nact + 1 usable segments in this chunk */
-  if (build_ptr(base, 0) == TO_PTR(addr) && base + nact != ((uptr)1 << (ptr_bits - segment_offset_bits)) - 1)
-    nact += 1;
+  /* start the segments at the first boundary above addr: ptr_get_segment
+     counts the seven bytes below a segment's first byte as the segment's,
+     so a segment starting at addr itself would claim bytes below the
+     block (catalog 078).  The block holds nact + 1 segments' bytes, so
+     nact whole segments still fit. */
+  base = addr_get_segment((uptr)TO_PTR(addr)) + 1;
 
   chunk = S_getmem(sizeof(chunkinfo) + sizeof(seginfo) * nact, 0, 0);
   debug(printf("allocate_segments chunk = %p\n", chunk))
