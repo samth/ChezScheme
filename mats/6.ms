@@ -3946,3 +3946,15 @@
   ;; a reference to a graph slot nothing defined
   ($fm-rejects? ($fm-node '(u8 16) '(uptr 64) '(uptr 0) '(u8 18) '(uptr 42)))
   )
+
+(mat fasl-malformed-graph-def ; catalog 034
+  ;; a graph-def outside a graph, which would store into the externals vector
+  (let ([ext (make-vector 2000 'unset)])
+    (guard (c [#t (eq? (vector-ref ext 1000) 'unset)])
+      (fasl-read (open-bytevector-input-port ($fm-wrap ($fm-node '(u8 17) '(uptr 1000) '(object "graphdef"))))
+                 'load ext)
+      #f))
+  ;; a graph slot defined twice
+  ($fm-rejects? ($fm-node '(u8 16) '(uptr 2) '(uptr 0)
+                  '(u8 4) '(uptr 2) '(u8 17) '(uptr 0) '(object 1) '(u8 17) '(uptr 0) '(object 2)))
+  )
