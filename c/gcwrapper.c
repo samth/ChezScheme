@@ -1193,6 +1193,7 @@ void S_fixup_counts(ptr counts) {
 ptr S_do_gc(IGEN max_cg, IGEN min_tg, IGEN max_tg, ptr count_roots) {
   ptr tc = get_thread_context();
   ptr code, result;
+  IBOOL then_collect;
 
   code = CP(tc);
   if (Sprocedurep(code)) code = CLOSCODE(code);
@@ -1206,13 +1207,26 @@ ptr S_do_gc(IGEN max_cg, IGEN min_tg, IGEN max_tg, ptr count_roots) {
     S_G.max_nonstatic_generation = S_G.new_max_nonstatic_generation;
   }
 
-  if (max_tg == max_cg && max_cg == S_G.new_max_nonstatic_generation && max_cg < S_G.max_nonstatic_generation) {
+  /* A lowered maximum is merged before any collection of the new maximum
+     generation, whatever its target.  Merging only before a collection
+     into itself let a static target copy past the generations still to
+     be merged and leave its copies' pointers into them without a card
+     (catalog 077).  The collection asked for follows the merge and does
+     the counting; the head of the list of objects to count is locked
+     across the merge, which moves the other pairs and stores their new
+     addresses in it. */
+  then_collect = max_tg != max_cg;
+  if (max_cg == S_G.new_max_nonstatic_generation && max_cg < S_G.max_nonstatic_generation) {
     IGEN new_g, old_g, from_g, to_g; ISPC s; seginfo *si, *nextsi, *tail;
    /* reducing max_nonstatic_generation */
     new_g = S_G.new_max_nonstatic_generation;
     old_g = S_G.max_nonstatic_generation;
    /* first, collect everything to old_g, ignoring min_tg */
-    result = S_gc(tc, old_g, old_g, old_g, count_roots);
+    if (then_collect) {
+      Slock_object(count_roots);
+      result = S_gc(tc, old_g, old_g, old_g, Sfalse);
+    } else
+      result = S_gc(tc, old_g, old_g, old_g, count_roots);
    /* now transfer old_g info to new_g, and clear old_g info */
     S_G.bytes_of_generation[new_g] = S_G.bytes_of_generation[old_g]; S_G.bytes_of_generation[old_g] = 0;
     for (s = 0; s <= max_real_space; s += 1) {
@@ -1307,6 +1321,11 @@ ptr S_do_gc(IGEN max_cg, IGEN min_tg, IGEN max_tg, ptr count_roots) {
    /* finally reset max_nonstatic_generation */
     S_G.min_free_gen = S_G.new_min_free_gen;
     S_G.max_nonstatic_generation = new_g;
+   /* then the collection asked for */
+    if (then_collect) {
+      result = S_gc(tc, max_cg, min_tg, max_tg, count_roots);
+      Sunlock_object(count_roots);
+    }
   } else {
     result = S_gc(tc, max_cg, min_tg, max_tg, count_roots);
   }
