@@ -1139,11 +1139,11 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             faslin(tc, &INITCDR(*x), t, pstrbuf, f);
             return;
         case fasl_type_code: {
-            iptr n, m, a; INT flags; iptr free;
+            iptr n, m, a, code_len; INT flags; iptr free;
             ptr co, reloc, name, pinfos;
             flags = bytein(f);
             free = sizein(f);
-            n = sizein(f) /* length in bytes of code */;
+            n = code_len = sizein(f) /* length in bytes of code */;
             *x = co = S_code(tc, type_code | (flags << code_flags_offset), n);
             CODEFREE(co) = free;
             faslin(tc, &name, t, pstrbuf, f);
@@ -1182,6 +1182,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
                 RELOCIT(reloc,n) = MAKE_SHORT_RELOC(type,code_off,item_off); n += 1;
               }
               a += code_off;
+              if (!S_reloc_in_code(type, a, code_len))
+                S_error1("", "malformed fasl code relocation offset found in ~a", f->uf.path);
               faslin(tc, &obj, t, pstrbuf, f);
               S_set_code_obj("read", type, co, a, obj, item_off);
             }
@@ -1512,6 +1514,87 @@ INT pax_encode21(INT n)
   return (((x0_4<<2 | x5_6)<<2 | x7_8)<<11 | x9_19)<<1 | x20;
 }
 #endif /* HPUX */
+
+/* the number of bytes S_set_code_obj writes at the relocated address
+   for a relocation of type typ, or 0 for a type it does not know */
+static iptr reloc_write_width(IFASLCODE typ) {
+    switch (typ) {
+        case reloc_abs:
+            return sizeof(uptr);
+#ifdef PORTABLE_BYTECODE
+        case reloc_pb_abs:
+        case reloc_pb_proc:
+            return sizeof(uptr);
+#endif /* PORTABLE_BYTECODE */
+#ifdef ARMV6
+        case reloc_arm32_abs:
+            return 4;
+        case reloc_arm32_jump:
+        case reloc_arm32_call:
+            return 16;
+#endif /* ARMV6 */
+#ifdef AARCH64
+        case reloc_arm64_abs:
+        case reloc_arm64_jump:
+        case reloc_arm64_call:
+            return 16;
+#endif /* AARCH64 */
+#ifdef PPC32
+        case reloc_ppc32_abs:
+            return 8;
+        case reloc_ppc32_jump:
+        case reloc_ppc32_call:
+            return 16;
+#endif /* PPC32 */
+#ifdef I386
+        case reloc_rel:
+            return sizeof(uptr);
+#endif /* I386 */
+#ifdef X86_64
+        case reloc_x86_64_jump:
+        case reloc_x86_64_call:
+        case reloc_x86_64_popcount:
+        case reloc_x86_64_fpround:
+            return 12;
+#endif /* X86_64 */
+#ifdef SPARC64
+        case reloc_sparc64abs:
+            return 32;
+        case reloc_sparc64rel:
+            return 4;
+#endif /* SPARC64 */
+#ifdef SPARC
+        case reloc_sparcabs:
+            return 8;
+        case reloc_sparcrel:
+            return 4;
+#endif /* SPARC */
+#ifdef RISCV64
+        case reloc_riscv64_abs:
+        case reloc_riscv64_call:
+        case reloc_riscv64_jump:
+            return 20;
+#endif /* RISCV64 */
+#ifdef LOONGARCH64
+        case reloc_loongarch64_abs:
+        case reloc_loongarch64_jump:
+        case reloc_loongarch64_call:
+            return 20;
+#endif /* LOONGARCH64 */
+        default:
+            return 0;
+    }
+}
+
+/* whether a relocation of type typ at offset a from a code object's
+   (tagged) address writes only within its code_len bytes of code */
+IBOOL S_reloc_in_code(IFASLCODE typ, iptr a, iptr code_len) {
+  uptr width = (uptr)reloc_write_width(typ);
+  return width != 0
+    && (uptr)a >= (uptr)code_data_disp
+    && (uptr)a - (uptr)code_data_disp <= (uptr)code_len
+    && width <= (uptr)code_len - ((uptr)a - (uptr)code_data_disp);
+}
 
 /* used here, in S_gc(), and in compile.ss */
 void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n, ptr x, iptr o) {

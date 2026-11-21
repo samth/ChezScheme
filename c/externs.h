@@ -121,6 +121,7 @@ extern ptr S_bv_fasl_read(ptr bv, int ty, uptr offset, uptr len, ptr path, ptr e
 extern ptr S_boot_read(faslFile f, const char *path);
 extern char *S_format_scheme_version(uptr n);
 extern char *S_lookup_machine_type(uptr n);
+extern IBOOL S_reloc_in_code(IFASLCODE typ, iptr a, iptr code_len);
 extern void S_set_code_obj(char *who, IFASLCODE typ, ptr p, iptr n,
                            ptr x, iptr o);
 extern ptr S_get_code_obj(IFASLCODE typ, ptr p, iptr n, iptr o);
