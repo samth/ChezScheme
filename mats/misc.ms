@@ -3105,6 +3105,16 @@
       (not (= a0 (#%$object-address v 0)))))
   )
 
+(mat locked-inexactnum-part
+  ;; collecting a part held on its own leaves the locked number intact
+  (let* ([z (make-rectangular (+ 1.5 (random 1)) 2.5)] [r (real-part z)] [i (imag-part z)])
+    (lock-object z)
+    (collect 0 1)
+    (let ([ok (and (eqv? z 1.5+2.5i) (eqv? r 1.5) (eqv? i 2.5))])
+      (unlock-object z)
+      ok))
+  )
+
 (mat eval-order
   (eqv? (call/cc (lambda (k) (0 (k 1)))) 1)
   (eqv? (let ([zero 0]) (call/cc (lambda (k) (zero (k 1))))) 1)
