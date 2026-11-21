@@ -4522,6 +4522,40 @@
       (eq? (bytevector-reference-ref a 0) p)))
   )
 
+(mat reference-bytevector-dirty-trailing-bytes
+  ;; a reference bytevector's trailing partial word is data, not a reference
+  (let ([bv (make-reference-bytevector 15)])
+    (collect (collect-maximum-generation))
+    (let ([young (make-bytevector 8 7)])
+      (bytevector-reference-set! bv 0 young)
+      (bytevector-uint-set! bv 8 (bytevector-u64-native-ref bv 0) (native-endianness) 7)
+      (let ([before (bytevector-uint-ref bv 8 (native-endianness) 7)])
+        (collect 0 1)
+        (and (= before (bytevector-uint-ref bv 8 (native-endianness) 7))
+             (eq? young (bytevector-reference-ref bv 0))))))
+  )
+
+(mat reference-bytevector-forward-marker-word
+  ;; a word equal to the forward marker does not end the dirty sweep of a card
+  (parameterize ([collect-request-handler void])
+    (let ([all (let loop ([i 0]) (if (= i 64) '() (cons (make-reference-bytevector 16) (loop (+ i 1)))))])
+      (collect 0 1) (collect 1 2) (collect 2 3) (collect 3 4)
+      (let ([addr (lambda (x) (#%$object-address x 0))])
+        (let-values ([(a b)
+                      (let loop ([ls (sort (lambda (x y) (< (addr x) (addr y))) all)])
+                        (if (= (quotient (addr (car ls)) 512) (quotient (addr (cadr ls)) 512))
+                            (values (car ls) (cadr ls))
+                            (loop (cdr ls))))])
+          (bytevector-u64-native-set! a 8 62)
+          (let ([p (list 'young 1 2 3)])
+            (bytevector-reference-set! b 0 p)
+            (collect 0 1)
+            (let loop ([i 0] [acc '()])
+              (when (< i 200000)
+                (loop (+ i 1) (cons (make-vector 3 i) (if (> (length acc) 10) '() acc)))))
+            (eq? (bytevector-reference-ref b 0) p))))))
+  )
+
 (mat reference-bytevector-implementation-restriction
   (parameters [optimize-level 0])
   (let ([too-large (+ (greatest-fixnum) 1)])
