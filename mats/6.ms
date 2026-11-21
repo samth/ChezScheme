@@ -3881,3 +3881,10 @@
                   '(u8 12) `(uptr #x4000000000000007) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
                   '(zeros 8) '(uptr 0)))
   )
+
+(mat fasl-malformed-reloc-table-length ; catalog 021
+  ;; an extended relocation entry takes three table words, but the table has one
+  ($fm-rejects? ($fm-node '(u8 11) '(u8 0) '(uptr 0) '(uptr 8)
+                  '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
+                  '(zeros 8) '(uptr 1) '(u8 1) '(uptr 65) '(u8 12) '(uptr 0)))
+  )
