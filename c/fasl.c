@@ -1870,7 +1870,8 @@ static uptr ppc32_get_jump(void *address) {
 #ifdef X86_64
 
 static void x86_64_set_jump(void *address, uptr item, IBOOL callp) {
-  I64 disp = (I64)item - ((I64)address + 5); /* 5 = size of call instruction */
+  /* compute unsigned, since the signed difference can overflow */
+  I64 disp = (I64)(item - ((uptr)address + 5)); /* 5 = size of call instruction */
   if ((I32)disp == disp) {
     *(octet *)address = callp ? 0xE8 : 0xE9;  /* call or jmp disp32 opcode */
     *(I32 *)((uptr)address + 1) = (I32)disp;
