@@ -708,24 +708,31 @@ static iptr iptrin(faslFile f) {
   }
 }
 
-/* `*bytes_consumed` is set to -1 on error when there's no
-   `f->uf.path` to report an error */
+/* When there's no `f->uf.path` to report an error, `*bytes_consumed`
+   is set to -1 at the end of the stream and to -2 when the value is
+   too large for a `uptr` */
 uptr S_fasl_uptrin(faslFile f, INT *bytes_consumed) {
   uptr n, m; int k;
 
   if (bytes_consumed) *bytes_consumed = 1;
   k = bytein(f);
-  if (k < 0) return -1; /* in case `f->uf.path` is 0 */
+  if (k < 0) { /* in case `f->uf.path` is 0 */
+    if (bytes_consumed) *bytes_consumed = -1;
+    return -1;
+  }
   n = (k & 0x7F);
   while (k & 0x80) {
     k = bytein(f);
-    if (k < 0) return -1; /* in case `f->uf.path` is 0 */
+    if (k < 0) { /* in case `f->uf.path` is 0 */
+      if (bytes_consumed) *bytes_consumed = -1;
+      return -1;
+    }
     m = n << 7;
     if (m >> 7 != n) {
       if (f->uf.path != (ptr)0)
         toolarge(f->uf.path);
       else {
-        if (bytes_consumed) *bytes_consumed = -1;
+        if (bytes_consumed) *bytes_consumed = -2;
         return 0;
       }
     }

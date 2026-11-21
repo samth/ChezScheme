@@ -675,7 +675,12 @@ static IBOOL check_boot(faslFile f, IBOOL verbose, const char *path) {
   /* check version */
   n = S_fasl_uptrin(f, &got);
   if (got < 0) {
-    if (verbose) fprintf(stderr, "unexpected end of file on %s\n", path);
+    if (verbose) {
+      if (got == -1)
+        fprintf(stderr, "unexpected end of file on %s\n", path);
+      else
+        fprintf(stderr, "malformed fasl-object header in %s\n", path);
+    }
     CLOSE(f->uf.fd);
     return 0;
   }
@@ -692,7 +697,12 @@ static IBOOL check_boot(faslFile f, IBOOL verbose, const char *path) {
   /* check machine type */
   n = S_fasl_uptrin(f, &got);
   if (got < 0) {
-    if (verbose) fprintf(stderr, "unexpected end of file on %s\n", path);
+    if (verbose) {
+      if (got == -1)
+        fprintf(stderr, "unexpected end of file on %s\n", path);
+      else
+        fprintf(stderr, "malformed fasl-object header in %s\n", path);
+    }
     CLOSE(f->uf.fd);
     return 0;
   }
