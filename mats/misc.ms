@@ -5704,3 +5704,15 @@
       (close-port ip)
       (and (eqv? r 10) (equal? bv #vu8(1 2 3 4 5 6 7 8 9 10)))))
   )
+
+(mat S_vector-maximum-length ; catalog 010
+  ;; the C constructor accepts the maximum vector length, as vector
+  ;; constructors in Scheme do; allocating it then runs out of memory
+  (or (not (= (fixnum-width) 61)) ; the maximum is most-positive-fixnum here
+   (not ($catalog-contains?
+         ($catalog-child-output
+           '(load-shared-object #f)
+           '((foreign-procedure "S_vector" (iptr) scheme-object)
+             (most-positive-fixnum)))
+         "invalid vector size")))
+  )
