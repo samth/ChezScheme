@@ -3714,3 +3714,47 @@
    (sanitized-error? (read-char (car p)))
    (sanitized-error? (clear-input-port (cadr p)))
  )
+
+(mat catalog-child-helpers
+  ;; helpers for the mats below that run an expression in a fresh process,
+  ;; for bugs that crash the process or change global collector state
+  (begin
+    (define ($catalog-child-output . exprs)
+      ;; standard output and error of a fresh scheme -q fed exprs, with a
+      ;; line "exited" when it reads all of them and exits normally
+      (let-values ([(to-stdin from-stdout from-stderr pid)
+                    (open-process-ports (format "~a -q" (patch-exec-path *scheme*))
+                      (buffer-mode block) (native-transcoder))])
+        (for-each (lambda (e) (pretty-print e to-stdin)) exprs)
+        (pretty-print '(begin (display "exited\n") (exit 0)) to-stdin)
+        (close-port to-stdin)
+        (let* ([out (get-string-all from-stdout)] [err (get-string-all from-stderr)])
+          (close-port from-stdout)
+          (close-port from-stderr)
+          (string-append (if (eof-object? out) "" out) (if (eof-object? err) "" err)))))
+    (define ($catalog-contains? s pat)
+      (let ([n (string-length s)] [k (string-length pat)])
+        (let loop ([i 0])
+          (and (<= (+ i k) n)
+               (or (string=? (substring s i (+ i k)) pat)
+                   (loop (+ i 1)))))))
+    #t)
+  (equal? ($catalog-child-output '(display "hi\n")) "hi\nexited\n")
+  )
+
+(mat boot-file-truncated-version ; catalog 005
+  ;; a boot file cut off inside its version is reported as truncated
+  (let ([boot (format "../boot/~a/petite.boot" (machine-type))])
+    (or (not (file-exists? boot))
+        (let ([bv (call-with-port (open-file-input-port boot) get-bytevector-all)])
+          (call-with-port (open-file-output-port "testfile-005.boot" (file-options replace))
+            (lambda (p) (put-bytevector p bv 0 10)))
+          (let-values ([(to from err pid)
+                        (open-process-ports (format "~a -b ./testfile-005.boot -q" (patch-exec-path *scheme*))
+                          (buffer-mode block) (native-transcoder))])
+            (close-port to)
+            (let* ([out (get-string-all from)] [msg (get-string-all err)])
+              (close-port from)
+              (close-port err)
+              (and (string? msg) ($catalog-contains? msg "unexpected end of file")))))))
+  )
