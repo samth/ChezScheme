@@ -120,16 +120,19 @@ static glzFile glzdopen_output_gz(INT fd, INT compress_level) {
   as_append = fcntl(fd, F_GETFL) & O_APPEND;
 #endif
 
-  if ((gz = gzdopen(fd, as_append ? "ab" : "wb")) == Z_NULL) return Z_NULL;
+  /* allocate before gzdopen: on failure after it, gzclose would close
+     fd, which the caller still owns and closes itself */
+  if ((glz = malloc(sizeof(struct glzFile_r))) == NULL) return Z_NULL;
+
+  if ((gz = gzdopen(fd, as_append ? "ab" : "wb")) == Z_NULL) {
+    free(glz);
+    return Z_NULL;
+  }
 
   level = S_zlib_compress_level(compress_level);
 
   gzsetparams(gz, level, Z_DEFAULT_STRATEGY);
 
-  if ((glz = malloc(sizeof(struct glzFile_r))) == NULL) {
-    (void)gzclose(gz);
-    return Z_NULL;
-  }
   glz->fd = fd;
   glz->inputp = 0;
   glz->format = COMPRESS_GZIP;
@@ -197,12 +200,15 @@ static glzFile glzdopen_input_gz(INT fd) {
   gzFile gz;
   glzFile glz;
 
-  if ((gz = gzdopen(fd, "rb")) == Z_NULL) return Z_NULL;
-  
-  if ((glz = malloc(sizeof(struct glzFile_r))) == NULL) {
-    (void)gzclose(gz);
+  /* allocate before gzdopen: on failure after it, gzclose would close
+     fd, which the caller still owns and closes itself */
+  if ((glz = malloc(sizeof(struct glzFile_r))) == NULL) return Z_NULL;
+
+  if ((gz = gzdopen(fd, "rb")) == Z_NULL) {
+    free(glz);
     return Z_NULL;
   }
+
   glz->fd = fd;
   glz->inputp = 1;
   glz->format = COMPRESS_GZIP;
