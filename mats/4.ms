@@ -5372,6 +5372,21 @@
            (eq? #!bwp (ephemeron-key e))
            (eq? #!bwp (ephemeron-value e))))))))
 
+(mat dirty-ephemeron-reached-key
+  ;; a key reached before the dirty sweep still counts toward the card
+  (parameterize ([collect-request-handler void])
+    (let ([e (ephemeron-cons #f 'old-value)])
+      (collect 0 1) (collect 1 2) (collect 2 3) (collect 3 4)
+      (let ([k (list 'key 1 2 3)])
+        (set-car! e k)
+        (collect 0 1)
+        (collect 1 1 2)
+        (let loop ([i 0] [acc '()])
+          (when (< i 200000)
+            (loop (+ i 1) (cons (make-vector 3 i) (if (> (length acc) 10) '() acc)))))
+        (eq? (car e) k))))
+  )
+
 (mat $primitive
    (procedure? #%car)
    (procedure? #2%car)
