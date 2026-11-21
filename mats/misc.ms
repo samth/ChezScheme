@@ -5783,3 +5783,41 @@
          (printf "moved ~s\n" moved))))])
     (andmap (lambda (i) ($catalog-contains? (child) "moved 0\n")) '(1 2 3)))
   )
+
+(mat foreign-callable-escape-releases-contexts ; catalog 056
+  ;; returning to an outer foreign callable past an inner one releases
+  ;; the inner one's context, so repeated escapes do not leak C memory
+  (begin (load-shared-object #f) #t)
+  (or (not (foreign-entry? "mallinfo2")) ; glibc
+      (let ()
+        (define-ftype mallinfo2-t
+          (struct [arena size_t] [ordblks size_t] [smblks size_t] [hblks size_t]
+                  [hblkhd size_t] [usmblks size_t] [fsmblks size_t]
+                  [uordblks size_t] [fordblks size_t] [keepcost size_t]))
+        (define mallinfo2 (foreign-procedure "mallinfo2" () (& mallinfo2-t)))
+        (define (in-use)
+          (let ([m (make-ftype-pointer mallinfo2-t (foreign-alloc (ftype-sizeof mallinfo2-t)))])
+            (mallinfo2 m)
+            (let ([n (+ (ftype-ref mallinfo2-t (uordblks) m) (ftype-ref mallinfo2-t (hblkhd) m))])
+              (foreign-free (ftype-pointer-address m))
+              n)))
+        (define inner-k #f)
+        (define cbB (foreign-callable (lambda () (inner-k 0)) () int))
+        (lock-object cbB)
+        (let ([callB (foreign-procedure (foreign-callable-entry-point cbB) () int)])
+          (define cbA
+            (foreign-callable
+              (lambda () (call/cc (lambda (k) (set! inner-k k) (callB))) 7)
+              () int))
+          (lock-object cbA)
+          (let ([callA (foreign-procedure (foreign-callable-entry-point cbA) () int)])
+            (do ([i 0 (+ i 1)]) ((= i 1000)) (callA))
+            (collect)
+            (let ([before (in-use)])
+              (do ([i 0 (+ i 1)]) ((= i 20000)) (callA))
+              (collect)
+              (let ([grew (- (in-use) before)])
+                (unlock-object cbA)
+                (unlock-object cbB)
+                (< grew 1000000)))))))
+  )
