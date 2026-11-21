@@ -183,7 +183,12 @@
             [else
              ;; Call `get-bytevector-n`, etc. with interrupts reenabled
              (lambda ()
-               (proc (get-bytevector-n p len) 0))])))))
+               (let ([bv (get-bytevector-n p len)])
+                 ;; a stream cut short gives eof or fewer bytes, which
+                 ;; must not reach the C reader as `len` bytes
+                 (unless (and (bytevector? bv) (fx= (bytevector-length bv) len))
+                   ($oops who "unexpected eof in fasl file ~s" p))
+                 (proc bv 0)))])))))
     (define (go p situation externals)
       (define (go1)
         (if (and ($port-flags-set? p (constant port-flag-file))
