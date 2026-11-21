@@ -1153,24 +1153,32 @@ ptr S_phantom_bytevector(uptr sz) {
 
 void S_phantom_bytevector_adjust(ptr ph, uptr new_sz) {
   ptr tc = get_thread_context();
-  uptr old_sz = PHANTOMLEN(ph);
+  uptr old_sz;
   seginfo *si;
   IGEN g;
 
+  /* read the old length and store the new one under the thread-context
+     mutex, so two threads adjusting one phantom each count from the
+     other's length (catalog 068) */
   tc_mutex_acquire();
 
+  old_sz = PHANTOMLEN(ph);
   si = SegInfo(ptr_get_segment(ph));
   g = si->generation;
+  PHANTOMLEN(ph) = new_sz;
+
+  tc_mutex_release();
+
+  /* the counters and the trigger's test belong to the allocation mutex,
+     as in the allocator (catalogs 048, 068) */
+  alloc_mutex_acquire();
 
   S_G.bytesof[g][countof_phantom] += (new_sz - old_sz);
-  alloc_mutex_acquire();
   S_adjustmembytes(new_sz - old_sz);
-  alloc_mutex_release();
-  PHANTOMLEN(ph) = new_sz;
 
   maybe_queue_fire_collector(THREAD_GC(tc));
 
-  tc_mutex_release();
+  alloc_mutex_release();
 
   S_maybe_fire_collector(THREAD_GC(tc));
 }
