@@ -1248,16 +1248,40 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
 #else
 # define unknown 3
 #endif
+/* the width in bytes of each record field kind */
+static iptr fasl_fld_width(UINT kind) {
+  switch (kind) {
+    case fasl_fld_ptr: return sizeof(ptr);
+    case fasl_fld_u8: return 1;
+    case fasl_fld_i16: return 2;
+    case fasl_fld_i24: return 3;
+    case fasl_fld_i32: return 4;
+    case fasl_fld_i40: return 5;
+    case fasl_fld_i48: return 6;
+    case fasl_fld_i56: return 7;
+    case fasl_fld_i64: return 8;
+    case fasl_fld_single: return sizeof(float);
+    case fasl_fld_double: return sizeof(double);
+    default: return 0;
+  }
+}
+
 static void fasl_record(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f, iptr size) {
-  iptr n; uptr addr; ptr p; UINT padty;
+  iptr n; uptr addr, end; ptr p; UINT padty;
 
   n = sizein(f);
+  /* the type word and every field must fit the `size` bytes the record declares */
+  if (size < record_data_disp - record_type_disp)
+    S_error1("", "malformed fasl record found in ~a", f->uf.path);
   *x = p = S_record(size_record_inst(size));
   faslin(tc, &RECORDINSTTYPE(p), t, pstrbuf, f);
   addr = (uptr)TO_PTR(&RECORDINSTIT(p, 0));
+  end = addr - (record_data_disp - record_type_disp) + size;
   for (; n != 0; n -= 1) {
     padty = bytein(f);
     addr += padty >> 4;
+    if (addr + fasl_fld_width(padty & 0xf) > end)
+      S_error1("", "malformed fasl record found in ~a", f->uf.path);
     switch (padty & 0xf) {
       case fasl_fld_ptr:
         faslin(tc, TO_VOIDP(addr), t, pstrbuf, f);
