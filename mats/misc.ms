@@ -5843,3 +5843,20 @@
                 (unlock-object cbB)
                 (< grew 1000000)))))))
   )
+
+(mat path-last-double-marker ; catalog 064
+  ;; the boot file named after the program is the last component of its
+  ;; name, also when that name has a doubled directory marker
+  (or (windows?) (not (file-exists? "/bin/bash"))
+      (let-values ([(to from err pid)
+                    (open-process-ports
+                      (format "/bin/bash -c \"exec -a 'testfile-dir//testfile-name' ~a -q\" 2>&1" (patch-exec-path *scheme*))
+                      (buffer-mode block) (native-transcoder))])
+        (close-port to)
+        (let ([out (get-string-all from)])
+          (close-port from)
+          (close-port err)
+          ;; the boot file sought is testfile-name.boot, not /testfile-name.boot
+          (and (string? out)
+               (not ($catalog-contains? out "/testfile-name.boot"))))))
+  )
