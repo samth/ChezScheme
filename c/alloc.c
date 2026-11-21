@@ -698,7 +698,7 @@ ptr S_vector_in(ptr tc, ISPC s, IGEN g, iptr n) {
 
     if (n == 0) return S_G.null_vector;
 
-    if ((uptr)n >= maximum_vector_length)
+    if ((uptr)n > (uptr)maximum_vector_length)
         S_error("", "invalid vector size request");
 
     d = size_vector(n);
@@ -713,7 +713,7 @@ ptr S_vector(iptr n) {
 
     if (n == 0) return S_G.null_vector;
 
-    if ((uptr)n >= maximum_vector_length)
+    if ((uptr)n > (uptr)maximum_vector_length)
         S_error("", "invalid vector size request");
 
     tc = get_thread_context();
