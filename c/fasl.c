@@ -1252,7 +1252,10 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         case fasl_type_graph_def: {
             uptr i; ptr *p;
             i = uptrin(f);
-            if (i >= (uptr)Svector_length(t))
+            /* only a slot that a {graph} made and no {graph-def} has filled
+               yet; in particular, never an external, which may be an old
+               object that this unbarriered store would leave uncarded */
+            if (i >= (uptr)Svector_length(t) || Svector_ref(t, i) != t)
                 S_error1("", "invalid fasl graph def index found in ~a", f->uf.path);
             p = &INITVECTIT(t, i);
             faslin(tc, p, t, pstrbuf, f);
