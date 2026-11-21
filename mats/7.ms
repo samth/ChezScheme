@@ -5748,6 +5748,28 @@ evaluating module init
     "(young 12345)\n")
   )
 
+(mat collect-static-after-lowered-maximum
+  ;; after collect-maximum-generation is lowered, a collection of the new
+  ;; maximum into the static generation keeps what its copies point to
+  (equal?
+    (separate-eval
+      '(collect-request-handler void)
+      '(begin
+         (collect-maximum-generation 6)
+         (let ([b (list 'old 1 2)])
+           (do ([g 0 (+ g 1)]) ((= g 5)) (collect g (+ g 1) (+ g 1)))
+           (let ([a (make-vector 1 b)])
+             (set! b #f)
+             (collect-maximum-generation 4)
+             (collect 4 'static)
+             (collect 4 4 4)
+             (let loop ([i 0] [acc '()])
+               (when (< i 200000) (loop (+ i 1) (cons (make-vector 3 i) acc))))
+             (collect 0 1 1)
+             (printf "~s\n" (vector-ref a 0))))))
+    "(old 1 2)\n")
+  )
+
 (mat object-counts
   ; basic structural checks
   (let ([hc (object-counts)])
