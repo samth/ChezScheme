@@ -3916,3 +3916,20 @@
                    (if (guard (c [#t #f]) (procedure? ($fm-read (clo d 0)))) d (loop (+ d 1)))))])
     (and d ($fm-rejects? (clo d 1))))
   )
+
+(mat fasl-rtd-cyclic-fields ; catalog 032
+  ;; re-reading a record type whose field list is cyclic is answered, not
+  ;; compared until the C stack overflows
+  ($catalog-contains?
+    ($catalog-child-output
+      '(let* ([rtd (make-record-type-descriptor 'r032 #f 'uid-catalog-032 #f #f '#((mutable a)))]
+              [names (record-type-field-names (#%$record-type-descriptor rtd))]
+              [idx (let loop ([i 0]) (if (eq? (vector-ref names i) 'flds) i (loop (+ i 1))))]
+              [cyclic (let ([p (list #f)]) (set-car! p p) p)])
+         (#%$record-set! rtd idx cyclic)
+         (let ([bv (call-with-bytevector-output-port (lambda (p) (fasl-write rtd p)))])
+           (guard (c [#t (display-condition c) (newline)])
+             (fasl-read (open-bytevector-input-port bv))
+             (display "read\n")))))
+    "incompatible record type")
+  )
