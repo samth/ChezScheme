@@ -901,6 +901,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         case fasl_type_system_stencil_vector: {
             uptr mask; iptr n; ptr *p;
             mask = uptrin(f);
+            if ((mask >> stencil_vector_mask_bits) != 0)
+              S_error1("", "malformed fasl stencil vector found in ~a", f->uf.path);
             if (ty == fasl_type_stencil_vector)
               *x = S_stencil_vector(mask);
             else
@@ -1115,6 +1117,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             IBOOL sign; iptr n; ptr t; bigit *p;
             sign = bytein(f);
             n = sizein(f);
+            if ((sign != 0 && sign != 1) || n == 0)
+              S_error1("", "malformed fasl large integer found in ~a", f->uf.path);
             t = S_bignum(tc, n, sign);
             p = &BIGIT(t, 0);
             while (--n >= 0) *p++ = (bigit)uptrin(f);
