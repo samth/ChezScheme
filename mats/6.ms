@@ -3758,3 +3758,88 @@
               (close-port err)
               (and (string? msg) ($catalog-contains? msg "unexpected end of file")))))))
   )
+
+;; Malformed fasl input, built by hand (chez-runtime-bugs catalog).  Each
+;; reader check must reject the input with an error rather than build a
+;; broken object.
+(mat fasl-malformed-helpers
+  (begin
+    (define ($fm-put-uptr p n)
+      (let loop ([groups '()] [n n])
+        (if (< n 128)
+            (let emit ([gs (cons n groups)])
+              (unless (null? gs)
+                (put-u8 p (if (null? (cdr gs)) (car gs) (fxlogor (car gs) #x80)))
+                (emit (cdr gs))))
+            (loop (cons (bitwise-and n #x7f) groups)
+                  (bitwise-arithmetic-shift-right n 7)))))
+    (define ($fm-bv-of v)
+      (call-with-bytevector-output-port (lambda (p) (fasl-write v p))))
+    (define ($fm-get-uptr bv i)
+      (let loop ([i i] [v 0])
+        (let* ([b (bytevector-u8-ref bv i)] [v (+ (* v 128) (fxand b 127))])
+          (if (fx> (fxand b 128) 0) (loop (+ i 1) v) (values v (+ i 1))))))
+    ;; the fasl header and situation of a fasl-write output, up to and
+    ;; including the situation's ")"
+    (define $fm-situation-end
+      (let ([sample ($fm-bv-of 0)])
+        (let loop ([i 8])
+          (if (= (bytevector-u8-ref sample i) (char->integer #\())
+              (let loop2 ([j (+ i 1)])
+                (if (= (bytevector-u8-ref sample j) (char->integer #\))) (+ j 1) (loop2 (+ j 1))))
+              (loop (+ i 1))))))
+    (define $fm-prefix
+      (let ([sample ($fm-bv-of 0)] [bv (make-bytevector (+ $fm-situation-end 1))])
+        (bytevector-copy! sample 0 bv 0 (+ $fm-situation-end 1))
+        bv))
+    ;; the bytes fasl-write writes for v, after the entry header
+    (define ($fm-object-bytes v)
+      (let ([bv ($fm-bv-of v)])
+        (let-values ([(size i) ($fm-get-uptr bv (+ $fm-situation-end 1))])
+          (let* ([start (+ i 2)] [len (- (bytevector-length bv) start)] [out (make-bytevector len)])
+            (bytevector-copy! bv start out 0 len)
+            out))))
+    ;; a node: each item is (u8 n), (uptr n), (bytes bv) or (object v)
+    (define ($fm-node . items)
+      (call-with-bytevector-output-port
+        (lambda (p)
+          (for-each
+            (lambda (item)
+              (case (car item)
+                [(u8) (put-u8 p (cadr item))]
+                [(uptr) ($fm-put-uptr p (cadr item))]
+                [(bytes) (put-bytevector p (cadr item))]
+                [(object) (put-bytevector p ($fm-object-bytes (cadr item)))]
+                [(zeros) (put-bytevector p (make-bytevector (cadr item) 0))]))
+            items))))
+    ;; an uncompressed fasl entry holding obj
+    (define ($fm-wrap obj)
+      (call-with-bytevector-output-port
+        (lambda (p)
+          (put-bytevector p $fm-prefix)
+          ($fm-put-uptr p (+ (bytevector-length obj) 2))
+          (put-u8 p 44) (put-u8 p 100)
+          (put-bytevector p obj))))
+    (define ($fm-read obj) (fasl-read (open-bytevector-input-port ($fm-wrap obj))))
+    ;; rejected with an error, not by a memory fault
+    (define ($fm-error-ok? c)
+      (let ([msg (with-output-to-string (lambda () (display-condition c)))])
+        (let loop ([k 0])
+          (or (> (+ k 24) (string-length msg))
+              (and (not (string=? (substring msg k (+ k 24)) "invalid memory reference"))
+                   (loop (+ k 1)))))))
+    (define ($fm-rejects? obj) (guard (c [#t ($fm-error-ok? c)]) ($fm-read obj) #f))
+    (define ($fm-message th)
+      (guard (c [#t (with-output-to-string (lambda () (display-condition c)))]) (th) ""))
+    (equal? ($fm-read ($fm-object-bytes '(1 "two" #(3)))) '(1 "two" #(3))))
+  )
+
+(mat fasl-malformed-stencil-vector-and-large-integer ; catalog 008
+  ;; a stencil-vector mask past the bits a header holds
+  ($fm-rejects? ($fm-node '(u8 22) `(uptr ,(expt 2 60)) '(u8 12) '(uptr 0)))
+  ;; a large integer's sign byte is 0 or 1, and it has at least one bigit
+  ($fm-rejects? ($fm-node '(u8 10) '(u8 2) '(uptr 1) '(uptr 5)))
+  ($fm-rejects? ($fm-node '(u8 10) '(u8 0) '(uptr 0)))
+  (eqv? ($fm-read ($fm-node '(u8 10) '(u8 1) '(uptr 4) '(uptr 16) '(uptr 0) '(uptr 0) '(uptr 0)))
+        (- (expt 2 100)))
+  )
