@@ -200,7 +200,14 @@ static ptr s_trunc_rem(ptr x, ptr y) {
 }
 
 static ptr s_fltofx(ptr x) {
-    return FIX((iptr)FLODAT(x));
+    double t;
+    if (!Sflonump(x))
+      S_error1("flonum->fixnum", "~s is not a flonum", x);
+    /* the conversion of a value outside iptr, or of a NaN, is undefined */
+    t = trunc(FLODAT(x));
+    if (!(t >= (double)most_negative_fixnum && t < -(double)most_negative_fixnum))
+      S_error1("flonum->fixnum", "result for ~s would be outside of fixnum range", x);
+    return FIX((iptr)t);
 }
 
 static ptr s_weak_pairp(ptr p) {
