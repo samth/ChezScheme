@@ -3895,3 +3895,10 @@
                   '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
                   '(zeros 8) '(uptr 1) '(u8 0) `(uptr ,(expt 2 40)) '(u8 12) '(uptr 0)))
   )
+
+(mat fasl-malformed-reloc-short-offset ; catalog 071
+  ;; a short relocation entry whose item offset does not fit its field
+  ($fm-rejects? ($fm-node '(u8 11) '(u8 0) '(uptr 0) '(uptr 8)
+                  '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
+                  '(zeros 8) '(uptr 1) '(u8 2) '(uptr 0) `(uptr ,(expt 2 40)) '(u8 12) '(uptr 0)))
+  )
