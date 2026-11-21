@@ -5869,3 +5869,19 @@
          (let ([g (gensym "pretty")])
            (equal? (sym->str g) (symbol->string g)))))
   )
+
+(mat Sset_box-immutable-old ; catalog 066
+  ;; a store into a promoted immutable box or vector is refused, so the next
+  ;; collection does not meet a dirty card in pure space
+  (begin (load-shared-object #f) #t)
+  (let ([set-box (foreign-procedure "Sset_box" (scheme-object scheme-object) void)]
+        [b (box-immutable 0)])
+    (collect (collect-maximum-generation))
+    (and (guard (c [#t #t]) (set-box b (list 'young)) #f)
+         (begin (collect 0 1) (eqv? (unbox b) 0))))
+  (let ([vec-set (foreign-procedure "Svector_set" (scheme-object iptr scheme-object) void)]
+        [v (vector->immutable-vector (vector 0 1 2))])
+    (collect (collect-maximum-generation))
+    (and (guard (c [#t #t]) (vec-set v 1 (list 'young)) #f)
+         (begin (collect 0 1) (eqv? (vector-ref v 1) 1))))
+  )
