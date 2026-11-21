@@ -947,7 +947,9 @@ ptr S_string(const char *s, iptr n) {
   /* first copy input string, if any */
     if (s != (char *)NULL) {
       while (i != n && *s != 0) {
-        Sstring_set(p, i, *s++);
+        /* a byte, not a possibly signed char */
+        Sstring_set(p, i, *(const unsigned char *)s);
+        s++;
         i += 1;
       }
     }
