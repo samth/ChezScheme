@@ -4156,8 +4156,8 @@
 ! 5_6.mo:Expected error in mat vector-copy!: "incorrect argument count in call (vector-copy! $v2 3 $v1 1)".
 ! 5_6.mo:Expected error in mat vector-copy!: "incorrect argument count in call (vector-copy! $v2 3 $v1 1 2 ...)".
   5_6.mo:Expected error in mat vector-copy!: "vector-copy!: 0 is not an vector".
-  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: #vfx(1 2 3) is not an vector".
-  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: invalid start value -1".
+  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: #vfx(1 2 3) is not a mutable vector".
+  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: #(1 2 3 4) is not a mutable vector".
 --- 4335,4346 ----
   5_6.mo:Expected error in mat list->vector: "list->vector: (#\a #\b . #\c) is not a proper list".
   5_6.mo:Expected error in mat list->vector: "list->vector: (#\a #\b #\c #\b #\c #\b ...) is circular".
@@ -4169,8 +4169,8 @@
 ! 5_6.mo:Expected error in mat vector-copy!: "incorrect number of arguments 4 to #<procedure vector-copy!>".
 ! 5_6.mo:Expected error in mat vector-copy!: "incorrect number of arguments 6 to #<procedure vector-copy!>".
   5_6.mo:Expected error in mat vector-copy!: "vector-copy!: 0 is not an vector".
-  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: #vfx(1 2 3) is not an vector".
-  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: invalid start value -1".
+  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: #vfx(1 2 3) is not a mutable vector".
+  5_6.mo:Expected error in mat vector-copy!: "vector-copy!: #(1 2 3 4) is not a mutable vector".
 ***************
 *** 4394,4405 ****
   5_6.mo:Expected error in mat fxvector-set!: "fxvector-set!: <-int> is not a fixnum".

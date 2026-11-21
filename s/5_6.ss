@@ -153,8 +153,8 @@
  (lambda (v1 i1 v2 i2 k)
    (unless (vector? v1)
      ($oops who "~s is not an vector" v1))
-   (unless (vector? v2)
-     ($oops who "~s is not an vector" v2))
+   (unless (mutable-vector? v2)
+     ($oops who "~s is not a mutable vector" v2))
    (let ([n1 (vector-length v1)] [n2 (vector-length v2)]
          [src v1] [tgt v2] [src-start i1] [tgt-start i2])
      (unless (and (fixnum? i1) (fx>= i1 0))
