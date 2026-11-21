@@ -3083,6 +3083,28 @@
       (equal? '(yes . 2) (vector-ref v (sub1 N)))))
   )
 
+(mat unlock-unlocked-object
+  ;; unlocking an object that is not locked leaves the segment's locks alone
+  (let ([a (make-vector 10 'a)] [b (make-vector 10 'b)])
+    (collect 0 1)
+    (lock-object a)
+    (unlock-object b)
+    (let ([a0 (#%$object-address a 0)])
+      (collect 1 2)
+      (collect 2 3)
+      (let ([ok? (and (= a0 (#%$object-address a 0)) (locked-object? a))])
+        (unlock-object a)
+        ok?)))
+  ;; nor does it pin a segment with no locks
+  (let ([v (make-vector 10 'x)])
+    (collect 0 1)
+    (unlock-object v)
+    (let ([a0 (#%$object-address v 0)])
+      (collect 1 2)
+      (collect 2 3)
+      (not (= a0 (#%$object-address v 0)))))
+  )
+
 (mat eval-order
   (eqv? (call/cc (lambda (k) (0 (k 1)))) 1)
   (eqv? (let ([zero 0]) (call/cc (lambda (k) (zero (k 1))))) 1)
