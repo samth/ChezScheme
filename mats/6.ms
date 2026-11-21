@@ -3933,3 +3933,11 @@
              (display "read\n")))))
     "incompatible record type")
   )
+
+(mat fasl-large-integer-leading-zeros ; catalog 033
+  ;; leading zero bigits read as the canonical number
+  (eqv? ($fm-read ($fm-node '(u8 10) '(u8 0) '(uptr 5) '(uptr 0) '(uptr 16) '(uptr 0) '(uptr 0) '(uptr 0)))
+        (expt 2 100))
+  (eqv? ($fm-read ($fm-node '(u8 10) '(u8 0) '(uptr 3) '(uptr 0) '(uptr 0) '(uptr 5))) 5)
+  (eqv? ($fm-read ($fm-node '(u8 10) '(u8 0) '(uptr 3) '(uptr 0) '(uptr 0) '(uptr 0))) 0)
+  )
