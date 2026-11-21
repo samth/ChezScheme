@@ -286,7 +286,11 @@ static ptr s_make_immobile_reference_bytevector(uptr len) {
 
 static ptr s_reference_bytevectorp(ptr p) {
   seginfo *si;
-  return (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space == space_reference_array ? Strue : Sfalse;
+  /* a fixnum or immediate names no object, whatever segment its bits
+     fall in (catalog 067) */
+  return !Sfixnump(p) && !Simmediatep(p)
+         && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL && si->space == space_reference_array
+         ? Strue : Sfalse;
 }
 
 static ptr s_reference_star_address_object(ptr p) {
