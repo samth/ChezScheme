@@ -385,34 +385,10 @@ static INT glzread_lz4(lz4File_in *lz4, void *buffer, UINT count) {
     if (in_avail > 0) {
       size_t amt, out_len = LZ4_INPUT_PORT_OUT_BUFFER_SIZE, in_len = in_avail;
 
-      /* For a large enough result buffer, try to decompress directly
-         to that buffer: */
-      if (count >= (out_len >> 1)) {
-        size_t direct_out_len = count;
-
-        if (lz4->frame_ended && lz4->in_buffer[lz4->in_pos] == 0)
-          return 0; /* count 0 after frame as stream terminator */
-
-        amt = LZ4F_decompress(lz4->dctx,
-                              buffer, &direct_out_len,
-                              lz4->in_buffer + lz4->in_pos, &in_len,
-                              NULL);
-        lz4->frame_ended = (amt == 0);
-
-        if (LZ4F_isError(amt)) {
-          lz4->err = Z_STREAM_ERROR;
-          return -1;
-        }
-
-        lz4->in_pos += (INT)in_len;
-
-        if (direct_out_len) {
-          lz4->stream_pos += direct_out_len;
-          return (INT)direct_out_len;
-        }
-
-        in_len = in_avail - in_len;
-      }
+      /* Always decompress into the port's own buffer: LZ4's decoder may
+         use the whole capacity it is given as scratch, writing a few
+         bytes past those it produces, and the caller's buffer past the
+         count returned must be left as it was. */
 
       if (in_len > 0) {
         if (lz4->frame_ended && lz4->in_buffer[lz4->in_pos] == 0)
