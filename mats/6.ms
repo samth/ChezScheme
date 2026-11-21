@@ -3888,3 +3888,10 @@
                   '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
                   '(zeros 8) '(uptr 1) '(u8 1) '(uptr 65) '(u8 12) '(uptr 0)))
   )
+
+(mat fasl-malformed-reloc-offset ; catalog 022
+  ;; a relocation whose offset lies far past the code object
+  ($fm-rejects? ($fm-node '(u8 11) '(u8 0) '(uptr 0) '(uptr 8)
+                  '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
+                  '(zeros 8) '(uptr 1) '(u8 0) `(uptr ,(expt 2 40)) '(u8 12) '(uptr 0)))
+  )
