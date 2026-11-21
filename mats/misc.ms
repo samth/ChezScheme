@@ -5885,3 +5885,12 @@
     (and (guard (c [#t #t]) (vec-set v 1 (list 'young)) #f)
          (begin (collect 0 1) (eqv? (vector-ref v 1) 1))))
   )
+
+(mat reference-bytevector?-fixnum ; catalog 067
+  ;; the C predicate answers #f for a fixnum, whatever segment its bits name
+  (let ([c-ref (foreign-procedure "(cs)s_reference_bytevectorp" (scheme-object) scheme-object)]
+        [rb (make-reference-bytevector 64)])
+    (let ([a (#%$fxaddress rb)])
+      (and (c-ref rb)
+           (andmap (lambda (k) (not (c-ref (+ a k)))) '(0 1 2 3)))))
+  )
