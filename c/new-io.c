@@ -491,6 +491,12 @@ ptr S_bytevector_read(ptr file, ptr bv, iptr start, iptr count, IBOOL gzflag) {
   saved_errno = errno;
   REACTIVATEandUNLOCK(tc, bv)
 
+  /* bytes already read are reported first; the pending interrupt is
+     then taken on the next call */
+  if (!flag && m > 0) {
+    return FIX(m);
+  }
+
   if (Sboolean_value(KEYBOARDINTERRUPTPENDING(tc))) {
     return Sstring("interrupt");
   }
