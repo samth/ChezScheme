@@ -236,6 +236,9 @@ static ptr s_box_immobile(ptr p) {
 
 static ptr s_make_immobile_bytevector(uptr len) {
   ptr b = S_bytevector2(get_thread_context(), len, space_immobile_data);
+  /* a zero length answers the shared null bytevector, which is not ours
+     to count as immobile (catalog 069) */
+  if (len == 0) return b;
   S_immobilize_object(b);
   return b;
 }
@@ -246,6 +249,10 @@ static ptr s_make_immobile_vector(uptr len, ptr fill) {
   uptr i;
 
   v = S_vector_in(tc, space_immobile_impure, 0, len);
+
+  /* a zero length answers the shared null vector: no padding word to
+     store and nothing to count as immobile (catalog 069) */
+  if (len == 0) return v;
 
   S_immobilize_object(v);
   
@@ -262,6 +269,10 @@ static ptr s_make_immobile_vector(uptr len, ptr fill) {
 
 static ptr s_make_reference_bytevector(uptr len) {
   ptr b = S_bytevector2(get_thread_context(), len, space_reference_array);
+
+  /* a zero length answers the shared null bytevector, whose padding
+     word is not ours to store (catalog 069) */
+  if (len == 0) return b;
 
   /* In case of a dirty sweep at the current allocation site, we need
      to clear any padding bytes, either internal or for alignment */
@@ -280,6 +291,7 @@ static ptr s_make_reference_bytevector(uptr len) {
 
 static ptr s_make_immobile_reference_bytevector(uptr len) { 
   ptr b = s_make_reference_bytevector(len);
+  if (len == 0) return b; /* the shared null bytevector (catalog 069) */
   S_immobilize_object(b);
   return b;  
 }
