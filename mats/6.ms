@@ -3902,3 +3902,17 @@
                   '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
                   '(zeros 8) '(uptr 1) '(u8 2) '(uptr 0) `(uptr ,(expt 2 40)) '(u8 12) '(uptr 0)))
   )
+
+(mat fasl-malformed-closure ; catalog 027
+  ;; a closure without free-variable slots over code that expects one
+  (let* ([code (lambda (free)
+                 (list '(u8 11) '(u8 0) `(uptr ,free) '(uptr 8)
+                       '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr 6) '(u8 12) '(uptr #x26)
+                       '(zeros 8) '(uptr 0)))]
+         [clo (lambda (off free) (apply $fm-node '(u8 6) `(uptr ,off) (code free)))]
+         ;; the one entry offset the reader accepts
+         [d (let loop ([d 0])
+              (and (< d 256)
+                   (if (guard (c [#t #f]) (procedure? ($fm-read (clo d 0)))) d (loop (+ d 1)))))])
+    (and d ($fm-rejects? (clo d 1))))
+  )
