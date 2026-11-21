@@ -5678,3 +5678,12 @@
     (equal? (sstring #vu8(104 233 255 0))
             (string #\h (integer->char 233) (integer->char 255))))
   )
+
+(mat flonum->fixnum-private-checks ; catalog 002
+  (guard (c [#t #t]) (#%$flonum->fixnum 'a) #f)
+  (guard (c [#t #t]) (#%$flonum->fixnum +nan.0) #f)
+  (guard (c [#t #t]) (#%$flonum->fixnum 1e30) #f)
+  (guard (c [#t #t]) (#%$flonum->fixnum (expt 2.0 60)) #f)
+  (eqv? (#%$flonum->fixnum 3.9) 3)
+  (eqv? (#%$flonum->fixnum -3.9) -3)
+  )
