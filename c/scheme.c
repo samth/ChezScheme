@@ -930,7 +930,8 @@ static void load(ptr tc, struct boot_desc *boot, IBOOL base) {
                      (boot->len > 0) ? FASL_BUFFER_READ_REMAINING : FASL_BUFFER_READ_ALL,
                      boot->len);
     }
-    check_boot(&boot->ffo.f, 1, boot->path);
+    if (!check_boot(&boot->ffo.f, 1, boot->path))
+      S_abnormal_exit();
     check_dependencies_header(&boot->ffo.f, boot->path);
     finish_dependencies_header(&boot->ffo.f, 0, boot->path);
   }
