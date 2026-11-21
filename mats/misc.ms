@@ -5747,3 +5747,17 @@
     (#2%$fixed-path? #f)
     #f)
   )
+
+(mat Smake-string-negative-size ; catalog 046
+  ;; a negative size with no string is a size error, not strlen(NULL)
+  (begin (load-shared-object #f) #t)
+  (let ([check (lambda (thunk)
+                 (guard (c [#t (not ($catalog-contains?
+                                      (with-output-to-string (lambda () (display-condition c)))
+                                      "invalid memory reference"))])
+                   (thunk)
+                   #f))])
+    (and (check (lambda () ((foreign-procedure "Smake_uninitialized_string" (iptr) scheme-object) -1)))
+         (check (lambda () ((foreign-procedure "Smake_string" (iptr int) scheme-object) -1 65)))
+         (check (lambda () ((foreign-procedure "Sstring" (uptr) scheme-object) 0)))))
+  )
