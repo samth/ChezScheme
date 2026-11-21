@@ -5122,6 +5122,23 @@
                    (eq? (car e) key2))))))))
  )
 
+(mat weak-pair-dirty-card
+  ;; a marked car must not raise the card's generation above the cdr's
+  (parameterize ([collect-request-handler void])
+    (let ([wp (weak-cons #f #f)])
+      (collect 0 1) (collect 1 2) (collect 2 3) (collect 3 4)
+      (let ([y (box-immobile 'y)])
+        (collect 0 1) (collect 1 2)
+        (set-car! wp y)
+        (set-cdr! wp (list 'x 1 2 3))
+        (collect 2 1 3)
+        (collect 1 1 2)
+        (let loop ([i 0] [acc '()])
+          (when (< i 200000)
+            (loop (+ i 1) (cons (make-vector 3 i) (if (> (length acc) 10) '() acc)))))
+        (and (eq? (car wp) y) (equal? (cdr wp) '(x 1 2 3))))))
+  )
+
 (mat ephemeron
    (begin
      (define ephemeron-key car)
