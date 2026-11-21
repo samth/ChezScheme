@@ -5687,3 +5687,20 @@
   (eqv? (#%$flonum->fixnum 3.9) 3)
   (eqv? (#%$flonum->fixnum -3.9) -3)
   )
+
+(mat bytevector-read-pending-interrupt ; catalog 004
+  ;; bytes a read delivers are reported even when a keyboard interrupt is pending
+  (let ([read (foreign-procedure "(cs)bytevector_read"
+                (scheme-object scheme-object iptr iptr boolean) scheme-object)])
+    (call-with-port (open-file-output-port "testfile-004" (file-options replace))
+      (lambda (p) (put-bytevector p #vu8(1 2 3 4 5 6 7 8 9 10))))
+    (let* ([ip (open-file-input-port "testfile-004")]
+           [bv (make-bytevector 10 0)]
+           [r (with-interrupts-disabled
+                (#%$tc-field 'keyboard-interrupt-pending (#%$tc) #t)
+                (let ([r (read (port-file-descriptor ip) bv 0 10 #f)])
+                  (#%$tc-field 'keyboard-interrupt-pending (#%$tc) #f)
+                  r))])
+      (close-port ip)
+      (and (eqv? r 10) (equal? bv #vu8(1 2 3 4 5 6 7 8 9 10)))))
+  )
