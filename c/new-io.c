@@ -650,10 +650,6 @@ ptr S_put_byte(ptr file, INT byte, IBOOL gzflag) {
   saved_errno = errno;
   REACTIVATE(tc)
 
-  if (flag) {
-    if (saved_errno == EAGAIN) { flag = 0; }
-  }
-
   if (!flag) {
     return FIX(i);
   }
