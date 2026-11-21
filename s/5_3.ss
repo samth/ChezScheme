@@ -3177,6 +3177,23 @@
     ((constructor create-pseudo-random-generator)
      (predicate is-pseudo-random-generator?)))
 
+  ;; The C generator (c/random.c) requires each field to be an integer-valued
+  ;; double below its modulus; otherwise its double->integer casts are undefined.
+  ;; The fields are reachable through record-rtd and record-mutator, so check
+  ;; them before each call (catalog 037).
+  (define (state-ok? s)
+    (define (ok? x m) (and (fl>= x 0.0) (fl< x m) (flinteger? x)))
+    (let ([m1 4294967087.0] [m2 4294944443.0])
+      (and (ok? (pseudo-random-generator-x10 s) m1)
+           (ok? (pseudo-random-generator-x11 s) m1)
+           (ok? (pseudo-random-generator-x12 s) m1)
+           (ok? (pseudo-random-generator-x20 s) m2)
+           (ok? (pseudo-random-generator-x21 s) m2)
+           (ok? (pseudo-random-generator-x22 s) m2))))
+
+  (define (check-state who s)
+    (unless (state-ok? s) ($oops who "invalid pseudo-random generator state in ~s" s)))
+
   (set! pseudo-random-generator?
         (lambda (x) (is-pseudo-random-generator? x)))
 
@@ -3204,6 +3221,7 @@
        (case-lambda
         [(s)
          (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+         (check-state who s)
          (random-double s)]
         [(s x)
          (define (random-integer s x)
@@ -3225,6 +3243,7 @@
                  (random-integer s x)
                  maybe-result)))
          (unless (is-pseudo-random-generator? s) ($oops who "not a pseudo-random generator ~s" s))
+         (check-state who s)
          (cond
           [(fixnum? x)
            (unless (fxpositive? x) ($oops who "not a positive exact integer ~s" x))
