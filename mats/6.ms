@@ -4062,3 +4062,13 @@
                         (display "read\n")))
                    "malformed vfasl code object")))))))
   )
+
+(mat fasl-malformed-library-code ; catalog 043
+  ;; a library entry that is not a procedure
+  (let loop ([i 0])
+    (and (< i 2000)
+        (let ([e (guard (c [#t 'error]) (#%$lookup-library-entry i #t))])
+          (if (or (procedure? e) (eq? e 'error))
+              (loop (+ i 1))
+              ($fm-rejects? ($fm-node '(u8 15) `(uptr ,i)))))))
+  )
