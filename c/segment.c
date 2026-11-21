@@ -287,6 +287,17 @@ static void initialize_seginfo(seginfo *si, NO_THREADS_UNUSED thread_gc *creator
 }
 
 /* allocation mutex must be held */
+/* preemptively mark a huge allocation as immobile, since we don't want
+   the GC to ever copy it; this holds for segments reused from a chunk as
+   much as for a fresh chunk (catalog 050) */
+static void mark_huge_allocation(seginfo *si, IGEN g, iptr n) {
+  if (n > minimum_segment_request) {
+    si->must_mark = MUST_MARK_INFINITY;
+    if (g == 0)
+      S_G.must_mark_gen0 = 1;
+  }
+}
+
 iptr S_find_segments(thread_gc *creator, ISPC s, IGEN g, iptr n) {
   chunkinfo *chunk, *nextchunk, **chunks;
   seginfo *si, *nextsi, **prevsi;
@@ -355,6 +366,7 @@ iptr S_find_segments(thread_gc *creator, ISPC s, IGEN g, iptr n) {
                   initialize_seginfo(nextsi, creator, s, g);
                 }
                 S_G.number_of_empty_segments -= n;
+                mark_huge_allocation(si, g, n);
                 return si->number;
               }
             }
@@ -378,13 +390,7 @@ iptr S_find_segments(thread_gc *creator, ISPC s, IGEN g, iptr n) {
     S_G.occupied_segments[g][s] = nextsi;
   }
 
-  /* preemptively mark a huge allocation as immobile, since
-     we don't want the GC to ever copy it */
-  if (n > minimum_segment_request) {
-    si->must_mark = MUST_MARK_INFINITY;
-    if (g == 0)
-      S_G.must_mark_gen0 = 1;
-  }
+  mark_huge_allocation(si, g, n);
 
   return si->number;
 }
