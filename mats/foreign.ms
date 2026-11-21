@@ -4511,6 +4511,17 @@
     (eq? #f (bytevector-reference-ref $reftest-bv-odd 0)))
 )
 
+(mat reference-bytevector-copy-card
+  ;; bytevector-copy! into an old reference bytevector records its card
+  (let ([a (make-reference-bytevector 8)])
+    (collect (collect-maximum-generation))
+    (let ([src (make-reference-bytevector 8)] [p (cons 'left 'right)])
+      (bytevector-reference-set! src 0 p)
+      (bytevector-copy! src 0 a 0 8)
+      (collect 0 1)
+      (eq? (bytevector-reference-ref a 0) p)))
+  )
+
 (mat reference-bytevector-implementation-restriction
   (parameters [optimize-level 0])
   (let ([too-large (+ (greatest-fixnum) 1)])
