@@ -2515,6 +2515,34 @@
     '"compressed string")
 )
 
+(mat compression-read-count
+  ;; a read from a compressed port writes no byte past the count it was given
+  (let ([file "testfile-042.bin"])
+    (let loop ([seed 1] [ok? #t])
+      (if (> seed 60)
+          ok?
+          (let ([len (+ 20 (* seed 47))])
+            (random-seed seed)
+            (let ([data (make-bytevector len)])
+              (do ([i 0 (fx+ i 1)]) ((fx= i len))
+                (bytevector-u8-set! data i (if (< (random 10) 7) (random 4) (random 256))))
+              (parameterize ([compress-format 'lz4])
+                (let ([op (open-file-output-port file (file-options no-fail compressed))])
+                  (put-bytevector op data)
+                  (close-port op)))
+              (let* ([ip (open-file-input-port file (file-options compressed))]
+                     [n 100000]
+                     [bv (make-bytevector (+ 5 n) #xAA)]
+                     [m (get-bytevector-n! ip bv 5 n)])
+                (close-port ip)
+                (loop (+ seed 1)
+                      (and ok?
+                           (let check ([i (+ 5 m)])
+                             (or (= i (+ 5 n))
+                                 (and (fx= (bytevector-u8-ref bv i) #xAA)
+                                      (check (+ i 1)))))))))))))
+  )
+
 (mat bytevector-input-port
   (error? ; incorrect number of arguments
     (open-bytevector-input-port))
