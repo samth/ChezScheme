@@ -489,8 +489,11 @@ static const char *path_last(const char *p) {
       p += 2;
 #endif
 
+  /* p ends just past the last directory marker; the loop must not step
+     again after one, which skipped the second of "//" and read past the
+     NUL of a path ending in a marker (catalog 064) */
   for (s = p; *s != 0; s += 1)
-    if (DIRMARKERP(*s)) p = ++s;
+    if (DIRMARKERP(*s)) p = s + 1;
   return p;
 }
 
