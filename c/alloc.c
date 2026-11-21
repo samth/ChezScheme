@@ -928,7 +928,12 @@ ptr S_string(const char *s, iptr n) {
     ptr p; iptr d;
     iptr i;
 
-    if (n < 0) n = strlen(s);
+    /* no string and a negative length name no size: Smake_string and
+       Smake_uninitialized_string with n < 0, or Sstring(NULL) (catalog 046) */
+    if (n < 0) {
+      if (s == (const char *)NULL) S_error("", "invalid string size request");
+      n = strlen(s);
+    }
 
     if (n == 0) return S_G.null_string;
 
