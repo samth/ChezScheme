@@ -3843,3 +3843,9 @@
   (eqv? ($fm-read ($fm-node '(u8 10) '(u8 1) '(uptr 4) '(uptr 16) '(uptr 0) '(uptr 0) '(uptr 0)))
         (- (expt 2 100)))
   )
+
+(mat fasl-malformed-record-fields ; catalog 014
+  ;; a record whose fields run past the size it declares
+  ($fm-rejects? (apply $fm-node '(u8 24) '(uptr 16) '(uptr 4) '(u8 12) '(uptr 6)
+                  (apply append (make-list 4 (list `(u8 ,(fxsll 15 4)) '(u8 12) '(uptr 0))))))
+  )
