@@ -738,3 +738,24 @@
                          (loop (sub1 i))))))
                   (loop (sub1 i)))]))])
       (= count (length (map thread-join ths))))))
+
+(unless (windows?)
+  (mat nonblocking-put-u8
+    ;; a byte written to a full nonblocking unbuffered port is not dropped
+    (let-values ([(to from err pid) (open-process-ports "sleep 2; wc -c" (buffer-mode none))])
+      (set-port-nonblocking! to #t)
+      (let ([block (make-bytevector 4096 65)])
+        (let loop ([filled 0])
+          (let ([n (put-bytevector-some to block)])
+            (if (and (fixnum? n) (fx> n 0) (< filled (* 64 1024 1024)))
+                (loop (+ filled n))
+                (begin
+                  (put-u8 to 66)
+                  (close-port to)
+                  (let ([count (string->number
+                                 (list->string
+                                   (filter char-numeric? (string->list (get-string-all (transcoded-port from (native-transcoder)))))))])
+                    (close-port from)
+                    (close-port err)
+                    (= count (+ filled 1)))))))))
+  ))
