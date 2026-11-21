@@ -5761,3 +5761,25 @@
          (check (lambda () ((foreign-procedure "Smake_string" (iptr int) scheme-object) -1 65)))
          (check (lambda () ((foreign-procedure "Sstring" (uptr) scheme-object) 0)))))
   )
+
+(mat huge-allocation-reused-segments-stay-put ; catalog 050
+  ;; a huge bytevector served from a chunk's free segments is not copied
+  ;; by a later collection, as one served from a fresh chunk is not; the
+  ;; layout that reuses segments depends on addresses, so try three times
+  (let ([child (lambda () ($catalog-child-output
+      '(let ([seg 16384] [keep '()] [small '()] [moved 0])
+         (do ([i 0 (+ i 1)]) ((= i 100))
+           (let ([h (make-bytevector (* (+ 129 (mod (* i 37) 120)) seg) 0)])
+             (set! small (cons (make-vector 200 i) small))
+             (when (> (length small) 400) (set! small (list-tail small 200)))
+             (collect 0 1)
+             (let ([a1 (object->reference-address h)])
+               (collect 1 2)
+               (unless (= a1 (object->reference-address h)) (set! moved (+ moved 1))))
+             (if (even? i)
+                 (set! keep (cons h keep))
+                 (when (pair? keep) (set! keep (cdr keep))))
+             (when (> (length keep) 6) (set! keep (list-tail keep 3)))))
+         (printf "moved ~s\n" moved))))])
+    (andmap (lambda (i) ($catalog-contains? (child) "moved 0\n")) '(1 2 3)))
+  )
