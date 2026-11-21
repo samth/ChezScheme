@@ -4857,6 +4857,21 @@
           (lambda () (ephemeron-cons 'a 'b))))
   )
 
+(mat ordered-guardian-record-pointer-mask
+  ;; a record type whose pointer mask is a bignum the collection forwarded
+  (let* ([n 70]
+         [rtd (make-record-type "big" (cons '(double d) (map (lambda (i) (string->symbol (format "f~a" i))) (iota n))))]
+         [new (lambda () (apply (record-constructor rtd) 1.5 (iota n)))])
+    (and (let ([g (make-guardian #t)])
+           (g (new))
+           (collect)
+           (let ([x (g)]) (and x ((record-predicate rtd) x) (eqv? ((record-accessor rtd 70) x) 69))))
+         (let ([g (make-guardian #t)])
+           (g (cons 1 2) (new))
+           (collect)
+           (let ([x (g)]) (and x ((record-predicate rtd) x) (eqv? ((record-accessor rtd 70) x) 69))))))
+  )
+
 (mat refcount-guardians
   (error? ; unrecognized ftype
     (ftype-guardian NO!))
