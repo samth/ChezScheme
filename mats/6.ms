@@ -3849,3 +3849,17 @@
   ($fm-rejects? (apply $fm-node '(u8 24) '(uptr 16) '(uptr 4) '(u8 12) '(uptr 6)
                   (apply append (make-list 4 (list `(u8 ,(fxsll 15 4)) '(u8 12) '(uptr 0))))))
   )
+
+(mat fasl-malformed-entry-kind ; catalog 015
+  ;; the error from a file port names the bad kind byte
+  (let ([bv ($fm-bv-of '(1 2 3))])
+    (let-values ([(size i) ($fm-get-uptr bv (+ $fm-situation-end 1))])
+      (bytevector-u8-set! bv (+ i 1) 99)
+      (call-with-port (open-file-output-port "testfile-fasl-kind" (file-options replace))
+        (lambda (p) (put-bytevector p bv)))
+      (let ([msg ($fm-message (lambda () (call-with-port (open-file-input-port "testfile-fasl-kind") fasl-read)))])
+        (let loop ([k 0])
+          (and (<= (+ k 6) (string-length msg))
+               (or (string=? (substring msg k (+ k 6)) "got 99")
+                   (loop (+ k 1))))))))
+  )
