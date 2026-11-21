@@ -50,6 +50,9 @@ static ptr s_string_to_bytevector(const char *s);
 char *S_malloc_pathname(const char *inpath) {
   char *outpath; const char *ip;
 
+  /* the `string` foreign type passes #f as NULL (catalog 039) */
+  if (inpath == NULL) S_error("expand_pathname", "invalid path");
+
 #ifdef WIN32
   if (*inpath == '~' && (*(ip = inpath + 1) == 0 || DIRMARKERP(*ip))) {
     wchar_t* homew;
