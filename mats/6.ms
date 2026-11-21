@@ -3863,3 +3863,11 @@
                (or (string=? (substring msg k (+ k 6)) "got 99")
                    (loop (+ k 1))))))))
   )
+
+(mat fasl-malformed-hashtable-veclen ; catalog 019
+  ;; entries but a zero-length bucket vector
+  ($fm-rejects? ($fm-node '(u8 32) '(u8 0) '(u8 0) '(u8 0) '(u8 0) '(u8 1) `(object ,(expt 2 50)) '(object 0)))
+  ($fm-rejects? ($fm-node '(u8 33) '(u8 0) '(u8 0) '(u8 0) '(u8 0) '(u8 1) '(object a) '(object 0)))
+  (let ([h ($fm-read ($fm-node '(u8 32) '(u8 0) '(u8 0) '(u8 0) '(u8 1) '(u8 1) `(object ,(expt 2 50)) '(object 0)))])
+    (and (hashtable? h) (= (hashtable-size h) 1)))
+  )
