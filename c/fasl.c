@@ -1240,9 +1240,15 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
         case fasl_type_library:
             *x = S_lookup_library_entry(uptrin(f), 1);
             return;
-        case fasl_type_library_code:
-            *x = CLOSCODE(S_lookup_library_entry(uptrin(f), 1));
+        case fasl_type_library_code: {
+            ptr e = S_lookup_library_entry(uptrin(f), 1);
+            /* some library entries are code objects or other values, not
+               closures, and CLOSCODE would read a word of them as code */
+            if (!Sprocedurep(e))
+              S_error1("", "malformed fasl library code found in ~a", f->uf.path);
+            *x = CLOSCODE(e);
             return;
+        }
         case fasl_type_phantom:
             *x = S_phantom_bytevector(uptrin(f));
             return;

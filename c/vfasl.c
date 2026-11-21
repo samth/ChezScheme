@@ -569,8 +569,11 @@ static void relink_code(ptr co, ptr sym_base, ptr *vspaces, uptr *vspace_offsets
             else if ((tag == vfasl_reloc_library_entry_tag)
                      || (tag == vfasl_reloc_library_entry_code_tag)) {
               obj = S_lookup_library_entry(pos, 1);
-              if (tag == vfasl_reloc_library_entry_code_tag)
+              if (tag == vfasl_reloc_library_entry_code_tag) {
+                if (!Sprocedurep(obj))
+                  S_error("fasl-read", "malformed vfasl library code relocation");
                 obj = CLOSCODE(obj);
+              }
             } else if (tag == vfasl_reloc_symbol_tag) {
               ptr val;
               obj = TYPE(ptr_add(sym_base, symbol_pos_to_offset(pos)), type_symbol);
