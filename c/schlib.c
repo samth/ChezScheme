@@ -52,7 +52,9 @@ ptr Ssymbol_to_string(ptr x) {
   if (Sstringp(name))
     return name;
   else if (Spairp(name))
-    return Scdr(name);
+    /* (uname . pname) for a gensym, (name . #f) for an uninterned
+       symbol (catalog 065) */
+    return Scdr(name) == Sfalse ? Scar(name) : Scdr(name);
   else
    /* don't have access to prefix or count, and can't handle arbitrary
       prefixes anyway, so always punt */
