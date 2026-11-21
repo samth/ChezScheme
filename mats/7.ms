@@ -5728,6 +5728,26 @@ evaluating module init
   (try-gc-threshold #f)
  )
 
+(mat collect-static-lower-minimum
+  ;; (collect g 2 'static) sends generation g to the static generation, so
+  ;; a young object held only by an object of that generation is kept
+  (equal?
+    (separate-eval
+      '(collect-request-handler void)
+      '(let ([cmg (collect-maximum-generation)] [v (make-vector 1 #f)])
+         (do ([g 0 (+ g 1)]) ((= g cmg)) (collect g (+ g 1) (+ g 1)))
+         (collect cmg 2 'static)
+         (vector-set! v 0 (list 'young 12345))
+         (let churn ([n 2])
+           (unless (= n 0)
+             (collect 0 1 1)
+             (let loop ([i 0] [acc '()])
+               (when (< i 200000) (loop (+ i 1) (cons (make-vector 3 i) acc))))
+             (churn (- n 1))))
+         (printf "~s\n" (vector-ref v 0))))
+    "(young 12345)\n")
+  )
+
 (mat object-counts
   ; basic structural checks
   (let ([hc (object-counts)])
