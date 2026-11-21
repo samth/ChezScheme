@@ -469,6 +469,10 @@ ptr S_vfasl(ptr bv, faslFile stream, iptr offset, iptr input_len)
     ptr code_end = TYPE(VSPACE_END(vspace_code), type_typed_object);
     S_record_code_mod(tc, (uptr)vspaces[vspace_code], (uptr)code_end - (uptr)code);
     while (code != code_end) {
+      /* relink_code's check of each relocation trusts CODELEN; the code
+         object itself must lie in the code space */
+      if ((uptr)size_code(CODELEN(code)) > (uptr)code_end - (uptr)code)
+        S_error("fasl-read", "malformed vfasl code object");
       relink_code(code, sym_base, vspaces, vspace_offsets, to_static);
       code = ptr_add(code, size_code(CODELEN(code)));
     }
@@ -544,6 +548,11 @@ static void relink_code(ptr co, ptr sym_base, ptr *vspaces, uptr *vspace_offsets
             code_off = RELOC_CODE_OFFSET(entry);
         }
         a += code_off;
+
+        /* the relocated word, and so the offset stored in its place,
+           must lie in the code object's code bytes */
+        if (!S_reloc_in_code(RELOC_TYPE(entry), a, CODELEN(co)))
+          S_error("fasl-read", "malformed vfasl relocation");
 
         /* offset is stored in place of constant-loading code: */
         memcpy(&saved_off, TO_VOIDP((ptr)((uptr)co + a)), sizeof(I32));
