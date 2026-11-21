@@ -3958,3 +3958,22 @@
   ($fm-rejects? ($fm-node '(u8 16) '(uptr 2) '(uptr 0)
                   '(u8 4) '(uptr 2) '(u8 17) '(uptr 0) '(object 1) '(u8 17) '(uptr 0) '(object 2)))
   )
+
+(mat fasl-truncated-entry ; catalog 035
+  ;; an entry that declares more bytes than the input holds, read through a
+  ;; port that is not a bytevector port
+  (let* ([bv (call-with-bytevector-output-port
+               (lambda (p)
+                 (put-bytevector p $fm-prefix)
+                 ($fm-put-uptr p 12)
+                 (put-u8 p 44) (put-u8 p 100)))]
+         [i 0]
+         [ip (make-custom-binary-input-port "truncated"
+               (lambda (buf start n)
+                 (let ([k (min n (- (bytevector-length bv) i))])
+                   (bytevector-copy! bv i buf start k)
+                   (set! i (+ i k))
+                   k))
+               #f #f #f)])
+    (guard (c [#t ($fm-error-ok? c)]) (fasl-read ip) #f))
+  )
