@@ -701,7 +701,7 @@ ptr S_vector_in(ptr tc, ISPC s, IGEN g, iptr n) {
     if ((uptr)n > (uptr)maximum_vector_length)
         S_error("", "invalid vector size request");
 
-    d = size_vector(n);
+    d = size_vector((uptr)n);
     find_room(tc, s, g, type_typed_object, d, p);
     VECTTYPE(p) = (n << vector_length_offset) | type_vector;
     return p;
@@ -718,7 +718,7 @@ ptr S_vector(iptr n) {
 
     tc = get_thread_context();
 
-    d = size_vector(n);
+    d = size_vector((uptr)n);
     newspace_find_room(tc, type_typed_object, d, p);
     VECTTYPE(p) = (n << vector_length_offset) | type_vector;
     return p;
@@ -735,7 +735,7 @@ ptr S_fxvector(iptr n) {
 
     tc = get_thread_context();
 
-    d = size_fxvector(n);
+    d = size_fxvector((uptr)n);
     newspace_find_room(tc, type_typed_object, d, p);
     FXVECTOR_TYPE(p) = (n << fxvector_length_offset) | type_fxvector;
     return p;
@@ -752,7 +752,7 @@ ptr S_flvector(iptr n) {
 
     tc = get_thread_context();
 
-    d = size_flvector(n);
+    d = size_flvector((uptr)n);
     newspace_find_room(tc, type_typed_object, d, p);
     FLVECTOR_TYPE(p) = (n << flvector_length_offset) | type_flvector;
     return p;
