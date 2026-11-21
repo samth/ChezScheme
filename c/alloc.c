@@ -399,6 +399,27 @@ FORCEINLINE void mark_segment_dirty(seginfo *si, IGEN from_g, IGEN to_g) {
   }
 }
 
+/* record the cards of [p, endp) as dirty, as S_dirty_set does for one
+   word whose new value may be young: used after a raw copy into a
+   reference bytevector, whose words are references the dirty sweep must
+   see (catalog 070) */
+void S_dirty_range(ptr *p, ptr *endp) {
+  uptr card_bytes = (uptr)1 << card_offset_bits;
+  uptr a = (uptr)TO_PTR(p) & ~(card_bytes - 1);
+  uptr end = (uptr)TO_PTR(endp);
+
+  for (; a < end; a += card_bytes) {
+    seginfo *si = SegInfo(addr_get_segment(a));
+    IGEN from_g = si->generation;
+    if (from_g != 0) {
+      alloc_mutex_acquire();
+      si->dirty_bytes[(a >> card_offset_bits) & ((1 << segment_card_offset_bits) - 1)] = 0;
+      mark_segment_dirty(si, from_g, 0);
+      alloc_mutex_release();
+    }
+  }
+}
+
 void S_dirty_set(ptr *loc, ptr x) {
   *loc = x;
   if (!Sfixnump(x)) {

@@ -2080,6 +2080,10 @@ static void s_byte_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
      memcpy(dstaddr, srcaddr, cnt);
   else
      memmove(dstaddr, srcaddr, cnt);
+  /* a reference bytevector's words are references: record the cards the
+     copy wrote, as the write barrier would (catalog 070) */
+  if (cnt > 0 && s_reference_bytevectorp(dst) == Strue)
+    S_dirty_range(dstaddr, TO_VOIDP((uptr)dstaddr + cnt));
 }
 
 static void s_ptr_copy(ptr src, iptr srcoff, ptr dst, iptr dstoff, iptr cnt) {
