@@ -162,6 +162,20 @@
                          (+ (bitwise-arithmetic-shift-left q1 (bigits->bits n/2)) q2))
                     r))))))
 
+;; Combines quotient chunks `qs`, least significant first, where each
+;; chunk is `n` bigits further left than the one before it. Combining
+;; pairs avoids quadratic work from repeatedly shifting a growing quotient.
+(define (combine-quotient-chunks qs n)
+  (if (null? (cdr qs))
+      (car qs)
+      (combine-quotient-chunks
+       (let pair ([qs qs])
+         (if (or (null? qs) (null? (cdr qs)))
+             qs
+             (cons (+ (car qs) (bitwise-arithmetic-shift-left (cadr qs) (bigits->bits n)))
+                   (pair (cddr qs)))))
+       (fx* n 2))))
+
 (define (quotient&remainder/burnikel-ziegler x y return-quot? return-rem?)
   ;; Caller will have made sure that x and y are bignums
   (let* ((q-neg? (if (negative? y) (not (negative? x)) (negative? x)))
@@ -192,19 +206,19 @@
               (y-lo (extract-bigits y 0 (fxsra n 1))))   ; y[n/2..0]
          (let lp ((zi (bitwise-arithmetic-shift-right x (bigits->bits (fx* (fx- t 2) n))))
                   (i (fx- t 2))
-                  (quot 0))
+                  (quots '()))
            (let-values ([(qi ri) (burnikel-ziegler-2n/1n zi y y-hi y-lo n return-quot?)])
-             (let ((quot (and return-quot?
-                              (+ (bitwise-arithmetic-shift-left quot (bigits->bits n)) qi))))
+             (let ((quots (and return-quot? (cons qi quots))))
                (if (fx> i 0)
                    (let ((zi-1 (let* ((base*n*i-1 (fx* n (fx- i 1)))
                                       (base*n*i   (fx* n i))
                                       ;; x_{i-1} = x[n*i..n*(i-1)]
                                       (xi-1 (extract-bigits x base*n*i-1 base*n*i)))
                                  (+ (bitwise-arithmetic-shift-left ri (bigits->bits n)) xi-1))))
-                     (lp zi-1 (fx- i 1) quot))
+                     (lp zi-1 (fx- i 1) quots))
                    ;; De-normalise remainder, but only if necessary
-                   (let ((rem (if (or (not return-rem?) (eq? 0 norm-shift))
+                   (let ((quot (and return-quot? (combine-quotient-chunks quots n)))
+                         (rem (if (or (not return-rem?) (eq? 0 norm-shift))
                                   ri
                                   (bitwise-arithmetic-shift-right ri norm-shift))))
                      ;; Return values (quot, rem or both) with correct sign:

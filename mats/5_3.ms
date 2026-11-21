@@ -2236,6 +2236,15 @@
     (fl= (quotient -3.0 -2.0) 1.0)
     (fl= (quotient -3.0 2) -1.0)
     (eqv? (quotient (expt 7 150000) (expt 7 100000)) (expt 7 50000))
+    (let ([sb-quotient (foreign-procedure
+                        "(cs)ss_trunc" (scheme-object scheme-object) scheme-object)])
+      ;; a dividend many times longer than a divisor of more than 100 bigits
+      ;; makes Burnikel-Ziegler division combine many quotient chunks
+      (let ([x (+ 1 (expt 3 50) (expt 2 200000))]
+            [y (+ 7 (expt 3 40) (expt 2 5000))])
+        (and (eqv? (quotient x y) (sb-quotient x y))
+             (eqv? (quotient (- x) y) (sb-quotient (- x) y))
+             (eqv? (quotient x (- y)) (sb-quotient x (- y))))))
     ;; following returns incorrect result in all versions prior to 5.9b
     (eq? (quotient (most-negative-fixnum) (- (most-negative-fixnum))) -1)
  )
