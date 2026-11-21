@@ -5716,3 +5716,25 @@
              (most-positive-fixnum)))
          "invalid vector size")))
   )
+
+(mat lz4-output-write-failure ; catalog 030
+  ;; a failed write of lz4 output is reported, not dropped or retried forever
+  (or (not (file-exists? "/dev/full"))
+      (not (file-exists? "/usr/bin/timeout"))
+      (let-values ([(to from err pid)
+                    (open-process-ports (format "/usr/bin/timeout 60 ~a -q 2>&1" (patch-exec-path *scheme*))
+                      (buffer-mode block) (native-transcoder))])
+        (pretty-print
+          '(guard (c [(i/o-error? c) (display "reported\n")])
+             (parameterize ([compress-format 'lz4])
+               (let ([op (open-file-output-port "/dev/full" (file-options no-fail no-truncate compressed))])
+                 (put-bytevector op (make-bytevector 300000 7))
+                 (flush-output-port op)
+                 (close-port op))))
+          to)
+        (close-port to)
+        (let ([out (get-string-all from)])
+          (close-port from)
+          (close-port err)
+          (and (string? out) ($catalog-contains? out "reported")))))
+  )
