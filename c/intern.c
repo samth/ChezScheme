@@ -310,9 +310,14 @@ ptr S_intern4(ptr sym) {
   ptr uname_str = (Sstringp(name) ? name : Scar(name));
   const string_char *uname = &STRIT(uname_str, 0);
   iptr ulen = Sstring_length(uname_str);
-  iptr hc = UNFIX(SYMHASH(sym));
+  /* recompute the hash from the name rather than trust the one the
+     vfasl image stored, which must agree with the hash every other
+     interning of this name computes */
+  iptr hc = hash_uname(uname, ulen);
   iptr idx = OBINDEX(hc, S_G.oblist_length);
   bucket *b;
+
+  INITSYMHASH(sym) = FIX(hc);
 
   b = S_G.oblist[idx];
   while (b != NULL) {
