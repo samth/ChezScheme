@@ -562,6 +562,7 @@ static IBOOL next_path(const char *execpath, char *path,
 #else
                 fprintf(stderr, "warning: failed to get executable path (%s); ignoring %%x\n", strerror(errno));
 #endif
+                break; /* the warning says %x is ignored (catalog 062) */
               }
               const char *tend = path_last(tstart);
               t = tstart;
