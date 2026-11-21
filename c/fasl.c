@@ -863,6 +863,9 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             iptr n; ptr *p;
             n = sizein(f);
             *x = S_vector(n);
+            /* a {graph-ref} can reach this vector while its elements are
+               still being read, so give the unread ones a value */
+            for (p = &INITVECTIT(*x, 0); p != &INITVECTIT(*x, n); p++) *p = FIX(0);
             p = &INITVECTIT(*x, 0);
             while (--n >= 0) faslin(tc, p++, t, pstrbuf, f);
             if (ty == fasl_type_immutable_vector) {
