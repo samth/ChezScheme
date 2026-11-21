@@ -2826,10 +2826,16 @@ static IGEN check_dirty_ephemeron(thread_gc *tgc, ptr pe, IGEN youngest) {
   if (!FIXMEDIATE(p) && (si = MaybeSegInfo(ptr_get_segment(p))) != NULL) {
     if (si->old_space) {
       if (SEGMENT_IS_LOCAL(si, p)) {
+        /* a key already reached counts toward the card, as in
+           check_ephemeron (catalog 060) */
         if (new_marked(si, p)) {
+          if (youngest != MIN_TG && (pg = TARGET_GENERATION(si)) < youngest)
+            youngest = pg;
           relocate_dirty(&INITCDR(pe), youngest);
         } else if (FORWARDEDP(p, si)) {
           INITCAR(pe) = GET_FWDADDRESS(p);
+          if (youngest != MIN_TG && (pg = TARGET_GENERATION(si)) < youngest)
+            youngest = pg;
           relocate_dirty(&INITCDR(pe), youngest);
         } else {
           /* Not reached, so far; add to pending list */
