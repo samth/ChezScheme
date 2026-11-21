@@ -325,7 +325,9 @@ static IGEN MAX_CG, MIN_TG, MAX_TG;
 #else
 # define TARGET_GENERATION(si) si->generation
 FORCEINLINE IGEN compute_target_generation(IGEN g) {
-  return g == MAX_TG ? g : g < MIN_TG ? MIN_TG : g + 1;
+  /* the maximum collected generation goes to the maximum target, as
+     documented, also when that target is static (catalog 076) */
+  return g == MAX_TG ? g : g < MIN_TG ? MIN_TG : g == MAX_CG ? MAX_TG : g + 1;
 }
 #endif
 
