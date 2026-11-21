@@ -570,6 +570,8 @@
      ;; not vector
      (error? (vector-copy! 0 0 $v2 0 0))
      (error? (if (vector-copy! $v1 0 (fxvector 1 2 3) 0 0) #f #t))
+     ;; immutable target (catalog 058)
+     (error? (vector-copy! $v1 0 (vector->immutable-vector (vector 1 2 3 4)) 0 1))
 
      ;; bad index
      (error? (vector-copy! $v1 -1 $v2 0 0))
