@@ -1174,6 +1174,11 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
               item_off = (type_etc & 2) ? uptrin(f) : 0;
               if (n + ((type_etc & 1) ? 3 : 1) > m)
                 S_error1("", "malformed fasl code relocation table found in ~a", f->uf.path);
+              /* the type must fit its field, and a short entry's offsets theirs */
+              if (type > reloc_type_mask
+                  || (!(type_etc & 1)
+                      && (code_off > reloc_code_offset_mask || item_off > reloc_item_offset_mask)))
+                S_error1("", "malformed fasl code relocation entry found in ~a", f->uf.path);
               if (type_etc & 1) {
                 RELOCIT(reloc,n) = (type << reloc_type_offset)|reloc_extended_format ;    n += 1;
                 RELOCIT(reloc,n) = item_off; n += 1;
