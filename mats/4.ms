@@ -4839,6 +4839,24 @@
      #t)
  )
 
+(mat ordered-guardian-live-representative
+  ;; a live representative the collection has already reached
+  (andmap
+    (lambda (make-rep)
+      (let ([g (make-guardian #t)] [rep (make-rep)])
+        (g (cons 1 2) rep)
+        (collect)
+        (and (eq? (g) rep) (not (g)))))
+    (list (lambda () (cons 'a 'b))
+          (lambda () (make-vector 5 'a))
+          (lambda () (box 1))
+          (lambda () (make-string 3 #\a))
+          (lambda () (make-bytevector 8 1))
+          (lambda () (expt 2 100))
+          (lambda () (weak-cons 'a 'b))
+          (lambda () (ephemeron-cons 'a 'b))))
+  )
+
 (mat refcount-guardians
   (error? ; unrecognized ftype
     (ftype-guardian NO!))
