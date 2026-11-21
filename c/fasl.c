@@ -1172,6 +1172,8 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
               type = type_etc >> 2;
               code_off = uptrin(f);
               item_off = (type_etc & 2) ? uptrin(f) : 0;
+              if (n + ((type_etc & 1) ? 3 : 1) > m)
+                S_error1("", "malformed fasl code relocation table found in ~a", f->uf.path);
               if (type_etc & 1) {
                 RELOCIT(reloc,n) = (type << reloc_type_offset)|reloc_extended_format ;    n += 1;
                 RELOCIT(reloc,n) = item_off; n += 1;
