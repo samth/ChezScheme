@@ -453,8 +453,23 @@ static INT glzread_lz4(lz4File_in *lz4, void *buffer, UINT count) {
 
 INT S_glzread(glzFile glz, void *buffer, UINT count) {
   switch (glz->format) {
-    case COMPRESS_GZIP:
-      return gzread(glz->gz, buffer, count);
+    case COMPRESS_GZIP: {
+      z_off_t before = gztell(glz->gz);
+      INT r = gzread(glz->gz, buffer, count);
+      if (r < 0 && before >= 0) {
+        /* when a read(2) fails (with EINTR, say) after zlib has already
+           copied decompressed bytes into `buffer`, gzread answers -1 and
+           the count of those bytes is lost, though zlib's position has
+           moved past them; report them, and let the next call meet the
+           error again if it persists */
+        z_off_t moved = gztell(glz->gz) - before;
+        if (moved > 0) {
+          gzclearerr(glz->gz);
+          return (INT)moved;
+        }
+      }
+      return r;
+    }
     case COMPRESS_LZ4:
       return glzread_lz4(glz->lz4_in, buffer, count);
     default:
