@@ -5643,3 +5643,38 @@
        (black-box (expt 2 to-power))
        (loop (sub1 i))))))
   )
+
+(mat catalog-child-helpers
+  ;; helpers for the mats below that run an expression in a fresh process,
+  ;; for bugs that crash the process or change global collector state
+  (begin
+    (define ($catalog-child-output . exprs)
+      ;; standard output and error of a fresh scheme -q fed exprs, with a
+      ;; line "exited" when it reads all of them and exits normally
+      (let-values ([(to-stdin from-stdout from-stderr pid)
+                    (open-process-ports (format "~a -q" (patch-exec-path *scheme*))
+                      (buffer-mode block) (native-transcoder))])
+        (for-each (lambda (e) (pretty-print e to-stdin)) exprs)
+        (pretty-print '(begin (display "exited\n") (exit 0)) to-stdin)
+        (close-port to-stdin)
+        (let* ([out (get-string-all from-stdout)] [err (get-string-all from-stderr)])
+          (close-port from-stdout)
+          (close-port from-stderr)
+          (string-append (if (eof-object? out) "" out) (if (eof-object? err) "" err)))))
+    (define ($catalog-contains? s pat)
+      (let ([n (string-length s)] [k (string-length pat)])
+        (let loop ([i 0])
+          (and (<= (+ i k) n)
+               (or (string=? (substring s i (+ i k)) pat)
+                   (loop (+ i 1)))))))
+    #t)
+  (equal? ($catalog-child-output '(display "hi\n")) "hi\nexited\n")
+  )
+
+(mat Sstring-high-bytes ; catalog 001
+  ;; a byte above #x7F is the character with that code
+  (begin (load-shared-object #f) #t)
+  (let ([sstring (foreign-procedure "Sstring" (u8*) scheme-object)])
+    (equal? (sstring #vu8(104 233 255 0))
+            (string #\h (integer->char 233) (integer->char 255))))
+  )
