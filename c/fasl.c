@@ -1080,7 +1080,12 @@ static void faslin(ptr tc, ptr *x, ptr t, ptr *pstrbuf, faslFile f) {
             offset = uptrin(f);
             *x = S_closure((ptr)0, 0);
             faslin(tc, &cod, t, pstrbuf, f);
-            if (offset != code_data_disp || !Scodep(cod))
+            /* the closure has no free-variable slots, so its code must
+               expect none, and a continuation's code expects a
+               continuation object, not a closure */
+            if (offset != code_data_disp || !Scodep(cod)
+                || CODEFREE(cod) != 0
+                || (CODETYPE(cod) & (code_flag_continuation << code_flags_offset)))
               S_error1("", "malformed fasl closure found in ~a", f->uf.path);
             CLOSENTRY(*x) = (ptr)((uptr)cod + offset);
             return;
