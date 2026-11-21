@@ -5860,3 +5860,12 @@
           (and (string? out)
                (not ($catalog-contains? out "/testfile-name.boot"))))))
   )
+
+(mat Ssymbol_to_string-uninterned ; catalog 065
+  (begin (load-shared-object #f) #t)
+  (let ([sym->str (foreign-procedure "Ssymbol_to_string" (scheme-object) scheme-object)])
+    (and (equal? (sym->str 'hello) "hello")
+         (equal? (sym->str (string->uninterned-symbol "unint")) "unint")
+         (let ([g (gensym "pretty")])
+           (equal? (sym->str g) (symbol->string g)))))
+  )
