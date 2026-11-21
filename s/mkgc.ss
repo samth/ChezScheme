@@ -865,8 +865,16 @@
                    (set! num S_G.zero_length_bignum)])]
                [off
                 (trace-record-type-pm num rtd)])]
-            [(sweep-in-old self-test)
+            [(sweep-in-old)
              (trace-record-type-pm num rtd)]
+            [(self-test)
+             ;; The mask may have been forwarded already; its old copy's
+             ;; words are then a forwarding marker and address, not a
+             ;; bignum's (catalog 073)
+             (trace-record-type-pm num rtd)
+             (define n_si : seginfo* (SegInfo (ptr_get_segment num)))
+             (when (&& (-> n_si old_space) (FORWARDEDP num n_si))
+               (set! num (GET_FWDADDRESS num)))]
             [(check) (check-bignum num)]
             [else])])
          (let* ([index : iptr (- (BIGLEN num) 1)]
