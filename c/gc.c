@@ -219,6 +219,9 @@ static IGEN sweep_dirty_port(thread_gc *tgc, ptr x, IGEN youngest);
 static IGEN sweep_dirty_symbol(thread_gc *tgc, ptr x, IGEN youngest);
 static void sweep_code_object(thread_gc *tgc, ptr co, IGEN from_g);
 static void record_dirty_segment(IGEN from_g, IGEN to_g, seginfo *si);
+static ptr dirty_object_at(ISPC s, ptr a);
+static uptr dirty_object_size(ptr p);
+static IGEN sweep_dirty_record_space_object(thread_gc *tgc, ptr p, IGEN youngest);
 static void setup_sweep_dirty(thread_gc *tgc);
 static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments);
 static void resweep_dirty_weak_pairs(thread_gc *tgc);
@@ -2305,6 +2308,36 @@ static IGEN sweep_dirty_reference_arrays(thread_gc *tgc, seginfo *dirty_si, ptr 
   return youngest;
 }
 
+/* The object of space_impure_record or space_count_impure whose first
+   word is at untyped address `a`.  A record starts with its type, a typed
+   object; a closure starts with its code entry, which is not (catalog 082). */
+static ptr dirty_object_at(ISPC s, ptr a) {
+  if ((s == space_count_impure)
+      && !TYPEP(*(ptr *)TO_VOIDP(a), mask_typed_object, type_typed_object))
+    return TYPE(a, type_closure);
+  return TYPE(a, type_typed_object);
+}
+
+static uptr dirty_object_size(ptr p) {
+  if (TYPEP(p, mask_closure, type_closure))
+    return size_closure(CODEFREE(CLOSCODE(p)));
+  return size_record_inst(UNFIX(RECORDDESCSIZE(RECORDINSTTYPE(p))));
+}
+
+/* a closure's free variables are pointers; its code entry is left alone,
+   as the word-by-word walk left it */
+static IGEN sweep_dirty_record_space_object(thread_gc *tgc, ptr p, IGEN youngest) {
+  if (TYPEP(p, mask_closure, type_closure)) {
+    FLUSH_REMOTE_BLOCK
+    iptr i, n = CODEFREE(CLOSCODE(p));
+    for (i = 0; i < n; i++)
+      relocate_dirty(&CLOSIT(p, i), youngest);
+    FLUSH_REMOTE(tgc, p);
+    return youngest;
+  }
+  return sweep_dirty_record(tgc, p, youngest);
+}
+
 static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
   IGEN youngest, min_youngest;
   ptr *pp, *ppn, *ppend, *nl, start;
@@ -2384,8 +2417,7 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
                 COUNT_SWEPT_BYTES(pp, ppend);
 
                 if ((s == space_impure) || (s == space_immobile_impure)
-                    || (s == space_impure_typed_object) || (s == space_count_impure)
-                    || (s == space_closure)) {
+                    || (s == space_impure_typed_object) || (s == space_closure)) {
                   if (dirty_si->marked_mask) {
                     while (pp < ppend) {
                       /* handle two pointers at a time */
@@ -2451,7 +2483,13 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
 
                     pp += size_port / sizeof(ptr);
                   }
-                } else if (s == space_impure_record) { /* abandon hope all ye who enter here */
+                } else if ((s == space_impure_record) || (s == space_count_impure)) {
+                  /* abandon hope all ye who enter here */
+                  /* space_count_impure holds the records and closures that a
+                     counting collection copied ahead of their turn, records
+                     with non-pointer fields among them, so it is walked object
+                     by object like space_impure_record, not word by word
+                     (catalog 082) */
                   ptr p;
                   if (dirty_si->marked_mask) {
                     /* To get to the start of a record, move backward as long as bytes
@@ -2530,10 +2568,9 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
                         /* skip unmarked words */
                         p = (ptr)((uptr)p + byte_alignment);
                       } else {
-                        youngest = sweep_dirty_record(tgc, p, youngest);
-                        p = (ptr)((iptr)p +
-                            size_record_inst(UNFIX(RECORDDESCSIZE(
-                                  RECORDINSTTYPE(p)))));
+                        ptr obj = dirty_object_at(s, UNTYPE(p, type_typed_object));
+                        youngest = sweep_dirty_record_space_object(tgc, obj, youngest);
+                        p = (ptr)((iptr)p + dirty_object_size(obj));
                       }
                     }
                   } else {
@@ -2561,8 +2598,7 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
                        of a segment */
                     for (;;) {
                       p = TYPE(build_ptr(j,0),type_typed_object);
-                      pnext = (ptr)((iptr)p +
-                                    size_record_inst(UNFIX(RECORDDESCSIZE(RECORDINSTTYPE(p)))));
+                      pnext = (ptr)((iptr)p + dirty_object_size(dirty_object_at(s, build_ptr(j,0))));
                       if (ptr_get_segment(pnext) >= seg) break;
                       j = ptr_get_segment(pnext) + 1;
                     }
@@ -2570,19 +2606,18 @@ static uptr sweep_dirty_segments(thread_gc *tgc, seginfo **dirty_segments) {
                     /* now find first within dirty area */
                     while ((ptr *)TO_VOIDP(UNTYPE(pnext, type_typed_object)) <= pp) {
                       p = pnext;
-                      pnext = (ptr)((iptr)p +
-                                    size_record_inst(UNFIX(RECORDDESCSIZE(RECORDINSTTYPE(p)))));
+                      pnext = (ptr)((iptr)p + dirty_object_size(dirty_object_at(s, UNTYPE(p, type_typed_object))));
                     }
 
                     /* now sweep */
                     while ((ptr *)TO_VOIDP(UNTYPE(p, type_typed_object)) < ppend) {
+                      ptr obj;
                       /* quit on end of segment */
                       if (FWDMARKER(p) == forward_marker) break;
 
-                      youngest = sweep_dirty_record(tgc, p, youngest);
-                      p = (ptr)((iptr)p +
-                          size_record_inst(UNFIX(RECORDDESCSIZE(
-                                RECORDINSTTYPE(p)))));
+                      obj = dirty_object_at(s, UNTYPE(p, type_typed_object));
+                      youngest = sweep_dirty_record_space_object(tgc, obj, youngest);
+                      p = (ptr)((iptr)p + dirty_object_size(obj));
                     }
                   }
                 } else if (s == space_weakpair) {
