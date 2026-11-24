@@ -1285,6 +1285,25 @@
       (equal? e (cons g 'other))))
 )
 
+(mat collect-count-roots-raw-record-field
+  ;; a counting root copied ahead of its turn keeps its non-pointer fields
+  ;; out of later dirty sweeps
+  (equal?
+    (separate-eval
+      '(collect-request-handler void)
+      '(define-record fudge ((mutable a) (mutable unsigned-64 w)))
+      '(define r (make-fudge 'x 0))
+      '(define q (make-fudge r 0))
+      '(begin (collect 0 1 1 (list q r)) (void))
+      '(define y (cons 'young 2))
+      '(define w0 (object->reference-address y))
+      '(set-fudge-w! r w0)
+      '(set-fudge-a! r (cons 'dirty 'card))
+      '(collect 0 1 1)
+      '(printf "~s ~s\n" (= w0 (fudge-w r)) y))
+    "#t (young . 2)\n")
+  )
+
 (mat compute-composition
   (error? (compute-composition 0 -1))
   (error? (compute-composition 0 "static"))
