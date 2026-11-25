@@ -5728,6 +5728,23 @@ evaluating module init
   (try-gc-threshold #f)
  )
 
+(mat heap-reserve-ratio
+  ;; a reserve ratio too large for the heap's segment count, +inf.0 among
+  ;; them, keeps every empty segment when a collection releases memory
+  (let ([r (heap-reserve-ratio)])
+    (dynamic-wind
+      void
+      (lambda ()
+        (heap-reserve-ratio +inf.0)
+        (collect (collect-maximum-generation))
+        (heap-reserve-ratio 1e300)
+        (collect (collect-maximum-generation))
+        (heap-reserve-ratio 0.0)
+        (collect (collect-maximum-generation))
+        (eqv? (heap-reserve-ratio) 0.0))
+      (lambda () (heap-reserve-ratio r))))
+  )
+
 (mat collect-static-lower-minimum
   ;; (collect g 2 'static) sends generation g to the static generation, so
   ;; a young object held only by an object of that generation is kept
