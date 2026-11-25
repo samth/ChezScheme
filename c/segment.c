@@ -472,8 +472,17 @@ void S_free_chunks(void) {
   iptr ntofree;
   chunkinfo *chunk, *code_chunk, *nextchunk= NULL, *code_nextchunk = NULL;
 
-  ntofree = S_G.number_of_empty_segments -
-    (iptr)(Sflonum_value(SYMVAL(S_G.heap_reserve_ratio_id)) * S_G.number_of_nonstatic_segments);
+  {
+    /* heap-reserve-ratio accepts any nonnegative flonum, +inf.0 among them,
+       so the reserve can exceed every iptr; converting it then is
+       undefined behavior.  A reserve of at least the empty segments
+       frees nothing, so saturate it there (catalog 083).  The test is
+       written so that a NaN reserve (+inf.0 times no segments) frees
+       nothing too. */
+    double reserve = Sflonum_value(SYMVAL(S_G.heap_reserve_ratio_id)) * (double)S_G.number_of_nonstatic_segments;
+    iptr nempty = S_G.number_of_empty_segments;
+    ntofree = (reserve < (double)nempty) ? nempty - (iptr)reserve : 0;
+  }
 
   for (chunk = S_chunks[PARTIAL_CHUNK_POOLS], code_chunk = S_code_chunks[PARTIAL_CHUNK_POOLS];
        ntofree > 0 && ((chunk != NULL) || (code_chunk != NULL));
