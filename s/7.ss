@@ -263,6 +263,13 @@
       cfh?)))
 
 (let ()
+  ; the record predicates run-outer uses; their module's body (the
+  ; language definitions, a record-writer) runs once here, not per load
+  (module (Lexpand? recompile-info? library/ct-info? library/rt-info? program-info?)
+    (import (nanopass))
+    (include "base-lang.ss")
+    (include "expand-lang.ss"))
+
   (define do-load-binary
     (lambda (who fn ip situation for-import? importer externals)
       (let ([load-binary (make-load-binary who fn situation for-import? importer)])
@@ -275,10 +282,6 @@
                     (begin (load-binary x) (loop next-x))))))))))
 
   (define (make-load-binary who fn situation for-import? importer)
-    (module (Lexpand? recompile-info? library/ct-info? library/rt-info? program-info?)
-      (import (nanopass))
-      (include "base-lang.ss")
-      (include "expand-lang.ss"))
     (define run-vector
       (lambda (v)
         (let ([n (vector-length v)])
