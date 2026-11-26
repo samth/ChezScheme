@@ -1117,6 +1117,12 @@
     (test-transitive = 9007199254740992 9007199254740993.0 9007199254740993)
     (test-transitive = 9007199254740992000 9007199254740993000.0 9007199254740993000)
     (test-transitive-permutations =)
+    (not (= (expt 2 54) +inf.0+1.0i))
+    (not (= (expt 2 54) 1.0+inf.0i))
+    (not (= (expt 2 54) +nan.0+0.0i))
+    (not (= (+ (expt 2 53) 1) (make-rectangular (inexact (+ (expt 2 53) 1)) 0.0)))
+    (= (expt 2 54) (make-rectangular (inexact (expt 2 54)) 0.0))
+    (not (= (+ (expt 2 54) 1) (make-rectangular (inexact (+ (expt 2 54) 1)) 0.0)))
  )
 
 (mat <

@@ -2310,7 +2310,8 @@
           (type-case y
              [(fixnum?) (fx= x y)]
              [(bignum? ratnum? $exactnum?) #f]
-             [(cflonum?) (if (fixnum-floatable-wlop? x) (cfl= (fixnum->flonum x) y) (exact-inexact-compare? = x y))]
+             [(flonum?) (if (fixnum-floatable-wlop? x) (fl= (fixnum->flonum x) y) (exact-inexact-compare? = x y))]
+             [($inexactnum?) (and (fl= ($inexactnum-imag-part y) 0.0) (= x ($inexactnum-real-part y)))]
              [else (nonnumber-error who y)])]
          [(bignum?)
           (type-case y

@@ -3093,6 +3093,12 @@ in fasl files does not generally make sense.
 %-----------------------------------------------------------------------------
 \section{Bug Fixes}\label{section:bugfixes}
 
+\subsection{Comparing a large fixnum to an inexact complex number (10.5.0)}
+
+Comparing a fixnum whose magnitude is beyond $2^{53}$ with \scheme{=} to an
+inexact complex number no longer raises an exception or reads past the
+end of the complex number.
+
 \subsection{Compiler loop on negative \scheme{list-ref} index (10.5.0)}
 
 Compiling a call to \scheme{list-ref} or \scheme{list-tail} with a
